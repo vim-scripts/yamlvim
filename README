@@ -1,0 +1,5 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=3190
+
+This is the library that is able to represent arbitrary Vim data in YAML 1.2. It also provides a parser that is python YAML parser pyyaml rewritten in pure vimscript.
+
+Documentation: http://kp-pav.narod2.ru/vim/doc/yaml.txt.html
