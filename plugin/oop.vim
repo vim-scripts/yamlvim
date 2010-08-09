@@ -12,6 +12,7 @@ elseif !exists("s:g.pluginloaded")
                 \"plug": {},
                 \"main": {},
                 \ "oop": {},
+                \  "bi": {},
             \}
     lockvar 1 s:F
     "{{{3 Глобальная переменная
@@ -46,7 +47,7 @@ elseif !exists("s:g.pluginloaded")
     "{{{2 Регистрация дополнения
     let s:F.plug.load=load#LoadFuncdict()
     let s:g.reginfo=s:F.plug.load.registerplugin({
-                \"apiversion": "0.0",
+                \"apiversion": "0.1",
                 \"funcdict": s:F,
                 \"globdict": s:g,
                 \"scriptfile": s:g.load.scriptfile,
@@ -180,10 +181,48 @@ endfunction
 "{{{2 main: eerror, destruct, option
 "{{{3 main.destruct: выгрузить плагин
 function s:F.main.destruct()
+    for Cdf in s:g.bi.classdeletes
+        call call(Cdf, [], {})
+        unlet Cdf
+    endfor
     unlet s:g
     unlet s:F
     return 1
 endfunction
+"{{{2 bi
+let s:g.bi={}
+"{{{3 bi.prepare_cls_list
+function s:F.bi.prepare_cls_list(name, ...)
+    let r=[a:name]
+    call add(r, get(s:F.bi, a:name, {}))
+    call add(r, get(s:g.bi, a:name, {}))
+    call add(r, a:000)
+    return r
+endfunction
+"{{{3 bi.setclass
+let s:g.bi.classdeletes=[]
+function s:F.bi.setclass(...)
+    call add(s:g.bi.classdeletes,
+                \call(s:F.oop.class,
+                \     call(s:F.bi.prepare_cls_list, a:000, {}),
+                \     {}))
+endfunction
+"{{{3 bi.Exception
+let s:F.bi.Exception={}
+"{{{4 bi.Exception.raise
+function s:F.bi.Exception.raise()
+    throw self.warn()
+endfunction
+"{{{4 bi.Exception.warn
+function s:F.bi.Exception.warn()
+    let str=self.__str__()
+    echohl Error
+    echo str
+    echohl None
+    return str
+endfunction
+"{{{3 Создание классов
+call s:F.bi.setclass("Exception")
 "{{{1
 lockvar! s:F
 lockvar! s:g
