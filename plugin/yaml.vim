@@ -872,7 +872,9 @@ function s:F.load.Reader.check_printable(data)
     let selfname='Reader.check_printable'
     let index=0
     for ch in a:data
-        if ch!~#'^'.s:g.yaml.printchar.'\=$'
+        if ch!~#'^'.s:g.yaml.printchar.'\=$' && !(self.index==0 &&
+                    \                             index==0 &&
+                    \                             ch==#"\uFEFF")
             " XXX this probably cannot determine true position
             let position=self.index+(len(self.buffer)-self.pointer)+index
             call self.__raise("Reader", self.name, position, char2nr(ch),
@@ -3343,7 +3345,8 @@ endfunction
 function s:F.load.SafeConstructor.construct_yaml_set(node)
     let data=[]
     let value=self.construct_mapping(a:node)
-    call add(data, keys(value))
+    call extend(data, sort(keys(value)))
+    return data
 endfunction
 "{{{4 load.SafeConstructor.construct_yaml_str
 function s:F.load.SafeConstructor.construct_yaml_str(node)
@@ -3509,15 +3512,15 @@ call s:resolver.add_implicit_resolver('tag:yaml.org,2002:float',
             \'^\%([+-]\=\%([0-9][0-9_]*\)\.[0-9_]*\%([eE][-+][0-9]\+\)\='.
             \'\|\.[0-9_]\+\%([eE][-+][0-9]\+\)\='.
             \'\|[-+]\=[0-9][0-9_]*\%(:[0-5]\=[0-9]\)\+\.[0-9_]*'.
-            \'\|[-+]\=\.\%(inf|Inf|INF\)'.
-            \'\|\.\%(nan|NaN|NAN\)\)$',
+            \'\|[-+]\=\.\%(inf\|Inf\|INF\)'.
+            \'\|\.\%(nan\|NaN\|NAN\)\)$',
             \split('-+0123456789.', '\zs'))
 call s:resolver.add_implicit_resolver('tag:yaml.org,2002:int',
             \'^\%([-+]\=0b[0-1_]\+'.
             \'\|[-+]\=0[0-7_]\+'.
             \'\|[-+]\=\%(0\|[1-9][0-9_]*\)'.
             \'\|[-+]\=0x[0-9a-fA-F_]\+'.
-            \'\|[-+]\=[1-9][0-9_]*\%(:[0-5]\=[0-9]\+\)\)$',
+            \'\|[-+]\=[1-9][0-9_]*\%(:[0-5]\=[0-9]\)\+\)$',
             \split('-+0123456789', '\zs'))
 call s:resolver.add_implicit_resolver('tag:yaml.org,2002:merge', '^<<$', ['<'])
 call s:resolver.add_implicit_resolver('tag:yaml.org,2002:null',

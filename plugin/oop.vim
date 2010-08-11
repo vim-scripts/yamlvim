@@ -111,9 +111,9 @@ function s:F.oop.class(name, functions, variables, parents)
         let class.parents=copy(a:parents)
         lockvar! class.parents
     endif
-    let class.instances=[]
+    " let class.instances=[]
     lockvar class
-    unlockvar class.instances
+    " unlockvar class.instances
     let r={}
     let escapedname=substitute(string(a:name), '\n', "'.\"\\n\".'", 'g')
     execute      "function r.delete()\n".
@@ -155,7 +155,7 @@ function s:F.oop.setinstance(class, instance, first, args)
     if a:first && hasconstructor
         call call(a:class.F.__init__, [super]+a:args, a:instance)
     endif
-    call add(a:class.instances, a:instance)
+    " call add(a:class.instances, a:instance)
 endfunction
 "{{{3 oop.instance
 function s:F.oop.instance(name, ...)
@@ -171,6 +171,7 @@ function s:F.oop.instance(name, ...)
 endfunction
 "{{{3 oop.instanceof
 function s:F.oop.instanceof(name, instance)
+    return a:instance.__class__==#a:name
     for instance in s:g.classes[a:name].instances
         if a:instance is instance
             return 1
