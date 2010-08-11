@@ -22,6 +22,7 @@ elseif !exists("s:g.pluginloaded")
     let s:g={}
     let s:g.load={}
     let s:g.pluginloaded=0
+    let s:g.constructors=[{}, {}]
     let s:g.c={}
     let s:g.load.scriptfile=expand("<sfile>")
     "{{{3 Словарные функции
@@ -33,6 +34,40 @@ elseif !exists("s:g.pluginloaded")
                 \   ["dumps", "dump.dumps", {  "model": "optional",
                 \                           "required": [["any", ""]],
                 \                           "optional": [[["bool", ""],{},1]]}],
+                \   ["add_constructor", "load.add_constructor",
+                \                           {  "model": "simple",
+                \                           "required": [["and",
+                \                                         [["type", type("")],
+                \                                          ["not",
+                \                                           ["keyof",
+                \                                            s:g.constructors[0]
+                \                                                          ]]]],
+                \                                        ["type", 2]]}],
+                \   ["add_multi_constructor", "load.add_multi_constructor",
+                \                           {  "model": "simple",
+                \                           "required": [["and",
+                \                                         [["type", type("")],
+                \                                          ["not",
+                \                                           ["keyof",
+                \                                            s:g.constructors[1]
+                \                                                          ]]]],
+                \                                        ["type", 2]]}],
+                \   ["del_constructor", "load.del_constructor",
+                \                           {  "model": "simple",
+                \                           "required": [["and",
+                \                                         [["type", type("")],
+                \                                          ["keyof",
+                \                                           s:g.constructors[0]
+                \                                                          ]]]]
+                \                           }],
+                \   ["del_multi_constructor", "load.del_multi_constructor",
+                \                           {  "model": "simple",
+                \                           "required": [["and",
+                \                                         [["type", type("")],
+                \                                          ["keyof",
+                \                                           s:g.constructors[1]
+                \                                                          ]]]]
+                \                           }],
             \]
     "{{{3 Команды
     let s:g.load.commands={
@@ -78,8 +113,6 @@ let s:g.defaultOptions={
 let s:g.c.options={
             \"UsePython": ["bool", ""],
         \}
-"{{{2 Чистка
-unlet s:g.load
 "{{{2 s:g.yaml
 let s:g.yaml={}
 let s:g.yaml._undef=""
@@ -278,6 +311,7 @@ let s:g.p={
             \},
             \"emsg": {
             \        "spna": "special characters are not allowed",
+            \     "cexists": "Constructor for this tag already exists",
             \},
             \"etype": {
             \        "notimp": "NotImplemented",
@@ -289,6 +323,10 @@ let s:g.p={
             \"remessage": "Unacceptable character #x%04x: “%s” in “%s”, ".
             \             "position %u",
         \}
+call add(s:g.load.f[3][2].required[0][1][1], s:g.p.emsg.cexists)
+call add(s:g.load.f[4][2].required[0][1][1], s:g.p.emsg.cexists)
+"{{{2 Чистка
+unlet s:g.load
 "{{{1 Вторая загрузка — функции
 "{{{2 Внешние дополнения
 let s:F.plug.stuf=s:F.plug.load.getfunctions("stuf")
@@ -369,10 +407,10 @@ let s:g.load={}
 " yaml_*constructors _none key is a representation of python None key
 " implicit: (Bool, Bool)
 let s:g.load.BaseConstructor={
-            \"yaml_constructors": {},
-            \"yaml_multi_constructors": {},
+            \"yaml_constructors": s:g.constructors[0],
+            \"yaml_multi_constructors": s:g.constructors[1],
         \}
-let s:g.load.lastid=0
+unlet s:g.constructors
 let s:g.load.Parser={
             \"DEFAULT_TAGS": {
             \   '!':  '!',
@@ -545,27 +583,26 @@ function s:F.load.CollectionStartEvent.__init__(super, anchor, tag, implicit,
     let self.flow_style=a:flow_style
 endfunction
 "{{{3 Nodes
-"{{{4 load.Node.__init__ :: (tag, a, mark, mark) -> node
-function s:F.load.Node.__init__(super, tag, value, start_mark, end_mark)
+"{{{4 load.Node.__init__ :: (tag, a, mark, mark, id) -> node
+function s:F.load.Node.__init__(super, tag, value, start_mark, end_mark, id)
     let self.tag=a:tag
     let self.value=a:value
     let self.start_mark=a:start_mark
     let self.end_mark=a:end_mark
-    let self.id=s:g.load.lastid
-    let s:g.load.lastid+=1
+    let self.id=a:id
 endfunction
 "{{{4 load.CollectionNode.__init__ :: (tag, a, mark, mark, Bool) -> node
 function s:F.load.CollectionNode.__init__(super, tag, value, start_mark,
-            \                             end_mark, flow_style)
+            \                             end_mark, flow_style, id)
     call call(s:F.load.Node.__init__, [0, a:tag, a:value, a:start_mark,
-                \                      a:end_mark], self)
+                \                      a:end_mark, a:id], self)
     let self.flow_style=a:flow_style
 endfunction
 "{{{4 load.ScalarNode.__init__
 function s:F.load.ScalarNode.__init__(super, tag, value, start_mark, end_mark,
-            \                         style)
-    call call(a:super.__init__, [0, a:tag, a:value, a:start_mark, a:end_mark],
-                \self)
+            \                         style, id)
+    call call(a:super.__init__, [0, a:tag, a:value, a:start_mark, a:end_mark,
+                \                a:id], self)
     let self.style=a:style
 endfunction
 "{{{3 Tokens
@@ -629,6 +666,12 @@ function s:F.load.Loader.__init__(super, stream)
     call call(a:super.Composer.__init__,    [0],           self)
     call call(a:super.Resolver.__init__,    [0],           self)
     call call(a:super.Constructor.__init__, [0],           self)
+    let self.lastid=-1
+endfunction
+"{{{4 load.Loader.id :: (self + ()) -> id
+function s:F.load.Loader.id()
+    let self.lastid+=1
+    return self.lastid
 endfunction
 "{{{4 load.Loader.__geterr
 function s:F.load.Loader.__geterr(class, ...)
@@ -648,12 +691,14 @@ function s:F.load.Loader.__doerr(e, selfname, class, msgid, context_mark,
             \                    problem_mark, ...)
     if type(a:msgid)==type([])
         let msg=call(function('printf'),
-                    \[get(s:g.p.ee, a:msgid[0], '@|')]+a:msgid[1:])
+                    \[get(s:g.p.ee, a:msgid[0], a:msgid[0])]+a:msgid[1:])
     else
-        let msg=get(s:g.p.ee, a:msgid, '@|')
+        let msg=get(s:g.p.ee, a:msgid, a:msgid[0])
     endif
     let [context, problem]=split(msg, '@|', 1)
-    let context="In function ".a:selfname.":\n".context
+    if type(a:selfname)==type("")
+        let context="In function ".a:selfname.":\n".context
+    endif
     let note=get(a:000, 0, "")
     return call(self[a:e], [a:class, context, a:context_mark, problem,
                 \           a:problem_mark, note], self)
@@ -2870,7 +2915,7 @@ function s:F.load.Composer.compose_scalar_node(anchor)
     endif
     let node=s:F.plug.oop.getinstance("ScalarNode", tag, event.value,
                 \                     event.start_mark, event.end_mark,
-                \                     event.style)
+                \                     event.style, self.id())
     if a:anchor!=#""
         let self.anchors[a:anchor]=node
     endif
@@ -2889,7 +2934,7 @@ function s:F.load.Composer.compose_sequence_node(anchor)
     endif
     let node=s:F.plug.oop.getinstance("SequenceNode", tag, [],
                 \                     start_event.start_mark, 0,
-                \                     start_event.flow_style)
+                \                     start_event.flow_style, self.id())
     if a:anchor!=#""
         let self.anchors[a:anchor]=node
     endif
@@ -2915,7 +2960,7 @@ function s:F.load.Composer.compose_mapping_node(anchor)
     endif
     let node=s:F.plug.oop.getinstance("MappingNode", tag, [],
                 \                     start_event.start_mark, 0,
-                \                     start_event.flow_style)
+                \                     start_event.flow_style, self.id())
     if a:anchor!=#""
         let self.anchors[a:anchor]=node
     endif
@@ -2979,8 +3024,7 @@ function s:F.load.BaseConstructor.construct_object(node)
         let constructor.f=self.yaml_constructors[a:node.tag]
     else
         for tag_prefix in keys(self.yaml_multi_constructors)
-            " FIXME tag_prefix must be escaped
-            if node.tag=~#'^'.tag_prefix
+            if node.tag=~#'^'.s:F.plug.stuf.regescape(tag_prefix)
                 let tag_suffix=node.tag[len(tag_prefix):]
                 let constructor.f=self.yaml_multi_constructors[tag_prefix]
             endif
@@ -3005,6 +3049,7 @@ function s:F.load.BaseConstructor.construct_object(node)
     else
         let data=call(constructor.f, [a:node, tag_suffix], self)
     endif
+    let self.constructed_objects[a:node.id]=data
     unlet self.recursive_objects[a:node.id]
     return data
 endfunction
@@ -3015,8 +3060,7 @@ function s:F.load.BaseConstructor.construct_scalar(node, ...)
         call self._raise(selfname, "Constructor", ["notsc", a:node.__class__],
                     \    a:node.start_mark)
     endif
-    let self.constructed_objects[a:node.id]=a:node.value
-    return self.constructed_objects[a:node.id]
+    return a:node.value
 endfunction
 "{{{4 load.BaseConstructor.construct_sequence :: NodeConstructor
 function s:F.load.BaseConstructor.construct_sequence(node)
@@ -3287,6 +3331,7 @@ endfunction
 function s:F.load.SafeConstructor.construct_yaml_omap(node)
     let selfname='SafeConstructor.construct_yaml_omap'
     let omap=[]
+    let self.constructed_objects[a:node.id]=omap
     if a:node.__class__!=#"SequenceNode"
         call self._raise(selfname, "Constructor",
                     \    ["nseqomap", a:node.__class__],
@@ -3316,6 +3361,7 @@ endfunction
 function s:F.load.SafeConstructor.construct_yaml_pairs(node)
     let selfname='SafeConstructor.construct_yaml_pairs'
     let pairs=[]
+    let self.constructed_objects[a:node.id]=pairs
     if a:node.__class__!=#"SequenceNode"
         call self._raise(selfname, "Constructor",
                     \    ["nseqpr", a:node.__class__],
@@ -3343,9 +3389,9 @@ function s:F.load.SafeConstructor.construct_yaml_pairs(node)
 endfunction
 "{{{4 load.SafeConstructor.construct_yaml_set
 function s:F.load.SafeConstructor.construct_yaml_set(node)
-    let data=[]
     let value=self.construct_mapping(a:node)
-    call extend(data, sort(keys(value)))
+    let data=sort(keys(value))
+    let self.constructed_objects[a:node.id]=data
     return data
 endfunction
 "{{{4 load.SafeConstructor.construct_yaml_str
@@ -3394,19 +3440,35 @@ endfunction
 "{{{4 load.Constructor.construct_vim_object (oop.vim support) XXX -> to oop.vim
 "{{{3 load.loads
 function s:F.load.loads(stream)
-    let s:g.load.lastid=0
     let loader=s:F.plug.oop.getinstance("Loader", a:stream)
     return loader.get_single_data()
 endfunction
 "{{{3 load.load_all
 function s:F.load.load_all(stream)
-    let s:g.load.lastid=0
     let loader=s:F.plug.oop.getinstance("Loader", a:stream)
     let r=[]
     while loader.check_data()
         call add(r, loader.get_data())
     endwhile
     return r
+endfunction
+"{{{3 load.add_constructor
+function s:F.load.add_constructor(tag, Constructor)
+    let cobj=s:F.plug.oop.getinstance("BaseConstructor")
+    call cobj.add_constructor(a:tag, a:Constructor)
+endfunction
+"{{{3 load.add_multi_constructor
+function s:F.load.add_multi_constructor(tag, Constructor)
+    let cobj=s:F.plug.oop.getinstance("BaseConstructor")
+    call cobj.add_multi_constructor(a:tag, a:Constructor)
+endfunction
+"{{{3 load.del_constructor
+function s:F.load.del_constructor(tag)
+    unlet s:g.load.BaseConstructor.yaml_constructors[a:tag]
+endfunction
+"{{{3 load.del_multi_constructor
+function s:F.load.del_multi_constructor(tag)
+    unlet s:g.load.BaseConstructor.yaml_multi_constructors[a:tag]
 endfunction
 "{{{3 load.prepare_cls_list
 function s:F.load.prepare_cls_list(name, ...)
@@ -3765,7 +3827,8 @@ endfunction
 "{{{1
 lockvar! s:F
 lockvar! s:g
-unlockvar s:g.load.lastid
 unlockvar s:g.load.BaseResolver.yaml_implicit_resolvers
+unlockvar s:g.load.BaseConstructor.yaml_constructors
+unlockvar s:g.load.BaseConstructor.yaml_multi_constructors
 " vim: ft=vim:ts=8:fdm=marker:fenc=utf-8
 
