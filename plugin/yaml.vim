@@ -26,6 +26,11 @@ elseif !exists("s:g.pluginloaded")
     let s:g.c={}
     let s:g.load.scriptfile=expand("<sfile>")
     "{{{3 Словарные функции
+    let s:g.load.dumps_opts=[
+                \["dict", [[["equal", "preserve_locks"], ["bool", ""]],
+                \          [["equal", "custom_tags"],
+                \           ["allst", ["type", 2]]]]],
+                \{}, {}]
     let s:g.load.f=[["loads", "load.loads", {  "model": "simple",
                 \                           "required": [["type", type("")]]}],
                 \   ["load_all", "load.load_all",
@@ -33,7 +38,8 @@ elseif !exists("s:g.pluginloaded")
                 \                           "required": [["type", type("")]]}],
                 \   ["dumps", "dump.dumps", {  "model": "optional",
                 \                           "required": [["any", ""]],
-                \                           "optional": [[["bool", ""],{},1]]}],
+                \                           "optional": [[["bool", ""],{},1],
+                \                                        s:g.load.dumps_opts]}],
                 \   ["add_constructor", "load.add_constructor",
                 \                           {  "model": "simple",
                 \                           "required": [["and",
@@ -307,6 +313,8 @@ let s:g.p={
             \     "fscript": "@|Unable to get script function “%s”",
             \      "fundef": "@|Function “%s” does not exist",
             \        "fnum": "@|Cannot find function with number “%u”",
+            \      "ualias": "While constructing a vim list@|".
+            \                "found unknown locked alias “%s”",
             \        "ndef": "Variable %s used before defining",
             \},
             \"emsg": {
@@ -2859,9 +2867,9 @@ endfunction
 "{{{4 load.Composer.compose_document :: (self + ()) -> document
 function s:F.load.Composer.compose_document()
     call self.get_event()
+    let self.anchors={}
     let node=self.compose_node({}, -1)
     call self.get_event()
-    let self.anchors={}
     return node
 endfunction
 "{{{4 load.Composer.compose_node :: (self + (node, index)) -> node
@@ -3024,8 +3032,8 @@ function s:F.load.BaseConstructor.construct_object(node)
         let constructor.f=self.yaml_constructors[a:node.tag]
     else
         for tag_prefix in keys(self.yaml_multi_constructors)
-            if node.tag=~#'^'.s:F.plug.stuf.regescape(tag_prefix)
-                let tag_suffix=node.tag[len(tag_prefix):]
+            if a:node.tag=~#'^'.s:F.plug.stuf.regescape(tag_prefix)
+                let tag_suffix=a:node.tag[len(tag_prefix):]
                 let constructor.f=self.yaml_multi_constructors[tag_prefix]
             endif
         endfor
@@ -3050,7 +3058,7 @@ function s:F.load.BaseConstructor.construct_object(node)
         let data=call(constructor.f, [a:node, tag_suffix], self)
     endif
     let self.constructed_objects[a:node.id]=data
-    unlet self.recursive_objects[a:node.id]
+    silent! unlet self.recursive_objects[a:node.id]
     return data
 endfunction
 "{{{4 load.BaseConstructor.construct_scalar :: NodeConstructor
@@ -3433,6 +3441,102 @@ function s:F.load.Constructor.construct_vim_function(node)
                     \    0, a:node.start_mark)
     endif
 endfunction
+"{{{4 load.Constructor.construct_vim_locked
+function s:F.load.Constructor.construct_vim_locked(node, tag_suffix)
+    let tag='tag:yaml.org,2002:vim/'.a:tag_suffix
+    if has_key(self.yaml_constructors, tag)
+        let data=call(self.yaml_constructors[tag], [a:node], self)
+    else
+        let a:node.tag=tag
+        unlet self.recursive_objects[a:node.id]
+        let data=self.construct_object(a:node)
+    endif
+    lockvar 1 data
+    return data
+endfunction
+"{{{4 load.Constructor.construct_vim_dictionary
+function s:F.load.Constructor.construct_vim_dictionary(node)
+    let selfname='Constructor.construct_vim_dictionary'
+    if a:node.__class__!=#"MappingNode"
+        call self._raise(selfname, "Constructor", ["notmap", a:node.__class__],
+                    \    0, a:node.start_mark)
+    endif
+    let mapping={}
+    let self.constructed_objects[a:node.id]=mapping
+    for [key_node, value_node] in a:node.value
+        if key_node.tag==#'tag:yaml.org,2002:vim/Locked'
+            let locked=1
+            let key_node.tag='tag:yaml.org,2002:vim/String'
+        else
+            let locked=0
+        endif
+        let key=self.construct_object(key_node)
+        let tkey=type(key)
+        if tkey!=type("")
+            if tkey==type(0)
+                let key=string(key)
+                call self._warn(selfname, "Constructor", "numstr",
+                            \   a:node.start_mark, key_node.start_mark)
+            elseif tkey==type(0.0)
+                let tmp=string(key)
+                unlet key
+                let key=tmp
+                call self._warn(selfname, "Constructor", "fltstr",
+                            \   a:node.start_mark, key_node.start_mark)
+            elseif tkey==type([])
+                call self._raise(selfname, "Constructor", "lsthash",
+                            \    a:node.start_mark, key_node.start_mark)
+            elseif tkey==type({})
+                call self._raise(selfname, "Constructor", "dcthash"
+                            \    a:node.start_mark, key_node.start_mark)
+            endif
+        elseif key==#""
+            call self._raise(selfname, "Constructor", "nullhash",
+                        \    a:node.start_mark, key_node.start_mark)
+        endif
+        let value=self.construct_object(value_node)
+        let mapping[key]=value
+        if locked
+            lockvar 1 mapping[key]
+        endif
+        unlet key
+        unlet value
+    endfor
+    return mapping
+endfunction
+"{{{4 load.Constructor.construct_vim_list :: NodeConstructor
+function s:F.load.Constructor.construct_vim_list(node)
+    let selfname='Constructor.construct_vim_list'
+    if a:node.__class__!=#"SequenceNode"
+        call self._raise(selfname, "Constructor", ["notseq", a:node.__class__],
+                    \    0, a:node.start_mark)
+    endif
+    let sequence=[]
+    let self.constructed_objects[a:node.id]=sequence
+    for value_node in a:node.value
+        if value_node.tag[:32]==#'tag:yaml.org,2002:vim/LockedItem/'
+            let locked=1
+            let value_node.tag=substitute(value_node.tag, 'LockedItem/', '', '')
+        elseif value_node.tag[:32]==#'tag:yaml.org,2002:vim/LockedAlias'
+            let anchor=self.construct_scalar(value_node)
+            if has_key(self.anchors, anchor)
+                call add(sequence, self.construct_object(self.anchors[anchor]))
+            else
+                call self._raise(selfname, "Constructor", ['ualias', anchor],
+                            \    a:node.start_mark, value_node.start_mark)
+            endif
+            lockvar sequence[-1]
+            continue
+        else
+            let locked=0
+        endif
+        call add(sequence, self.construct_object(value_node))
+        if locked
+            lockvar sequence[-1]
+        endif
+    endfor
+    return sequence
+endfunction
 "{{{4 load.Constructor.construct_vim_buffer  XXX |
 "{{{4 load.Constructor.construct_vim_window  XXX |
 "{{{4 load.Constructor.construct_vim_tag     XXX |
@@ -3600,15 +3704,17 @@ let s:constructor=s:F.plug.oop.getinstance("BaseConstructor")
 call s:constructor.add_constructor('tag:yaml.org,2002:vim/String',
             \s:F.load.SafeConstructor.construct_yaml_str)
 call s:constructor.add_constructor('tag:yaml.org,2002:vim/List',
-            \s:F.load.SafeConstructor.construct_yaml_seq)
+            \s:F.load.Constructor.construct_vim_list)
 call s:constructor.add_constructor('tag:yaml.org,2002:vim/Float',
             \s:F.load.SafeConstructor.construct_yaml_float)
 call s:constructor.add_constructor('tag:yaml.org,2002:vim/Number',
             \s:F.load.SafeConstructor.construct_yaml_int)
 call s:constructor.add_constructor('tag:yaml.org,2002:vim/Dictionary',
-            \s:F.load.SafeConstructor.construct_yaml_map)
+            \s:F.load.Constructor.construct_vim_dictionary)
 call s:constructor.add_constructor('tag:yaml.org,2002:vim/Funcref',
             \s:F.load.Constructor.construct_vim_function)
+call s:constructor.add_multi_constructor('tag:yaml.org,2002:vim/Locked',
+            \s:F.load.Constructor.construct_vim_locked)
 unlet s:constructor
 "{{{3 SafeConstructor.add_constructor
 let s:constructor=s:F.plug.oop.getinstance("BaseConstructor")
@@ -3643,8 +3749,13 @@ call s:constructor.add_constructor('_none',
 unlet s:constructor
 "{{{2 dump: dumps
 let s:g.dump={}
+let s:g.dump.typenames=["Number", "String", "Funcref", "List", "Dictionary",
+            \           "Float"]
 "{{{3 dump.findobj
-function s:F.dump.findobj(obj, r, dumped)
+function s:F.dump.findobj(obj, r, dumped, opts)
+    if type(a:obj)!=type({}) && type(a:obj)!=type([])
+        return ""
+    endif
     for [line, info] in items(a:dumped)
         if a:obj is info[0]
             if info[1]==#""
@@ -3658,7 +3769,7 @@ function s:F.dump.findobj(obj, r, dumped)
     return ""
 endfunction
 "{{{3 dump.dumpnum
-function s:F.dump.dumpnum(obj, r, dumped)
+function s:F.dump.dumpnum(obj, r, dumped, opts)
     let a:r[-1].=" ".a:obj
     return a:r
 endfunction
@@ -3667,7 +3778,8 @@ endfunction
 let s:g.dump.disallowedstart=
             \(s:g.yaml.wslbr).
             \(s:g.yaml.flowindicator).
-            \(s:g.yaml.comment)
+            \(s:g.yaml.comment).
+            \'"'''
 let s:g.dump.disallowedp=
             \(s:g.yaml.flowindicator).
             \(s:g.yaml.linebreak).
@@ -3691,9 +3803,9 @@ let s:g.dump.escrev={
 " inside quoted strings
             " \"\t": '\t',
 "}}}4
-function s:F.dump.dumpstr(obj, r, dumped, ...)
+function s:F.dump.dumpstr(obj, r, dumped, opts, ...)
     "{{{4 Представление строки без ""
-    let spstr=(a:obj=~#'^[0-9~]' || index(s:g.dump.jyspecials, a:obj)!=-1)
+    let spstr=(a:obj=~#'^[0-9]' || index(s:g.dump.jyspecials, a:obj)!=-1)
     if a:obj=~#'^['.s:g.dump.disallowedstart.']\@!'.
                 \'\%(['.s:g.dump.disallowedp.']\@!'.
                 \   s:g.yaml.printchar.'\)*'.
@@ -3758,52 +3870,103 @@ function s:F.dump.dumpstr(obj, r, dumped, ...)
     return a:r
 endfunction
 "{{{3 dump.dumpfun
-function s:F.dump.dumpfun(obj, r, dumped)
+function s:F.dump.dumpfun(obj, r, dumped, opts)
     let a:r[-1].=' !!vim/Funcref '.substitute(string(a:obj), 'function(\(.*\))',
                 \                             '\1', '')
     return a:r
 endfunction
 "{{{3 dump.dumplst
-function s:F.dump.dumplst(obj, r, dumped)
-    let anchor=s:F.dump.findobj(a:obj, a:r, a:dumped)
-    if anchor!=#""
-        let a:r[-1].=" *".anchor
-        return a:r
-    elseif a:obj==[]
+function s:F.dump.dumplst(obj, r, dumped, opts)
+    if a:obj==[]
         let a:r[-1].=" []"
         return a:r
     endif
     let indent=matchstr(a:r[-1], '^ *')
+    let i=0
     for Item in a:obj
         call add(a:r, indent.'  -')
-        call call(s:g.dump.types[type(Item)], [Item, a:r, a:dumped], {})
+        let tobji=type(a:obj[i])
+        let islocked=0
+        if islocked('a:obj[i]') && get(a:opts, "preserve_locks", 0)
+            let a:r[-1].=' !!vim/LockedItem/'
+            let islocked=1
+        endif
+        call s:F.dump.dump(Item, a:r, a:dumped, a:opts, islocked)
         unlet Item
+        let i+=1
     endfor
     return a:r
 endfunction
 "{{{3 dump.dumpdct
-function s:F.dump.dumpdct(obj, r, dumped)
-    let anchor=s:F.dump.findobj(a:obj, a:r, a:dumped)
-    if anchor!=#""
-        let a:r[-1].=" *".anchor
-        return a:r
-    elseif a:obj=={}
+function s:F.dump.dumpdct(obj, r, dumped, opts)
+    if a:obj=={}
         let a:r[-1].=" {}"
         return a:r
     endif
     let indent=matchstr(a:r[-1], '^ *')
     for [key, Value] in items(a:obj)
         call add(a:r, indent.'  ')
-        call s:F.dump.dumpstr(key, a:r, a:dumped, 0)
+        if islocked('a:obj[key]') && get(a:opts, "preserve_locks", 0)
+            let a:r[-1].='!!vim/Locked'
+        endif
+        call s:F.dump.dump(key, a:r, a:dumped, a:opts, -1, 0)
         let a:r[-1].=":"
-        call call(s:g.dump.types[type(Value)], [Value, a:r, a:dumped], {})
+        call s:F.dump.dump(Value, a:r, a:dumped, a:opts, 0)
         unlet Value
     endfor
     return a:r
 endfunction
 "{{{3 dump.dumpflt
-function s:F.dump.dumpflt(obj, r, dumped)
+function s:F.dump.dumpflt(obj, r, dumped, opts)
     let a:r[-1].=' '.string(a:obj)
+    return a:r
+endfunction
+"{{{3 dump.dump
+function s:F.dump.dump(obj, r, dumped, opts, islocked, ...)
+    let anchor=s:F.dump.findobj(a:obj, a:r, a:dumped, a:opts)
+    if anchor!=#""
+        if get(a:opts, 'preserve_locks', 0) && a:r[-1]=~#' !!vim/LockedItem/$'
+            let a:r[-1]=substitute(a:r[-1], ' !!vim/LockedItem/$',
+                        \' !!vim/LockedAlias '.anchor, '')
+            return a:r
+        endif
+        let a:r[-1].=" *".anchor
+        return a:r
+    endif
+    let obj=a:obj
+    if a:islocked==1
+        if islocked('obj')
+            let a:r[-1].='Locked'
+        endif
+        let a:r[-1].=s:g.dump.typenames[type(obj)]
+    elseif a:islocked==0
+        let tag=""
+        for Function in a:opts.custom_tags
+            let result=call(Function, [obj], {})
+            if type(result)==type([]) && len(result)==2 &&
+                        \type(result[0])==type("")
+                let [tag, obj]=result
+                break
+            endif
+            unlet Function result
+        endfor
+        if tag==#""
+            if get(a:opts, 'preserve_locks', 0)
+                let tobj=type(obj)
+                if tobj==type([]) || tobj==type({})
+                    let a:r[-1].=' !!vim/'.((islocked('obj'))?("Locked"):("")).
+                                \s:g.dump.typenames[tobj]
+                endif
+            endif
+        else
+            let a:r[-1].=((empty(a:000))?(" "):("")).tag
+        endif
+    endif
+    call call(s:g.dump.types[type(obj)],
+                \[obj, a:r, a:dumped, a:opts]+((type(obj)==type(""))?
+                \                                   ([0]):
+                \                                   ([])),
+                \{})
     return a:r
 endfunction
 "{{{3 dump.dumps
@@ -3811,9 +3974,12 @@ endfunction
 let s:g.dump.types=[s:F.dump.dumpnum, s:F.dump.dumpstr, s:F.dump.dumpfun,
             \       s:F.dump.dumplst, s:F.dump.dumpdct, s:F.dump.dumpflt]
 "}}}4
-function s:F.dump.dumps(obj, join)
+function s:F.dump.dumps(obj, join, opts)
     let r=['%YAML 1.2', '---']
-    call call(s:g.dump.types[type(a:obj)], [a:obj, r, {}], {})
+    if !has_key(a:opts, "custom_tags")
+        let a:opts.custom_tags=[]
+    endif
+    call s:F.dump.dump(a:obj, r, {}, a:opts, 0)
     return a:join ? join(r, "\n") : r
 endfunction
 "{{{2 mng: main

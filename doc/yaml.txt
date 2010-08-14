@@ -37,10 +37,28 @@ load_all({string})                                      *yaml-func-load_all*
         Like |yaml-func-loads|, but returns a list of YAML documents found in 
         given string.
 
-dumps({data}[, {join}])                                    *yaml-func-dumps*
+dumps({data}[, {join}[, {opts}]])                          *yaml-func-dumps*
         Encode {data} in YAML and return resulting string. If optional 
         argument is present and it is not 1, then dumps function returns 
-        a list of lines.
+        a list of lines. {opts} optional variables is a dictionary with the 
+        following keys:
+        Key             Description ~
+        preserve_locks  If this key is present and is 1, then it will add 
+                        a tag !!vim/Locked{type} to any locked variable, so 
+                        that locks can be restored
+        custom_tags     If this key is present and contains a list of function 
+                        references, then for every dumped object if one of the 
+                        functions in custom_tags list being given this object 
+                        as a single argument, returns a list with two items: 
+                        a String and an object, then first item in this list 
+                        is taken as a tag and second is dumped. For example, 
+                        the following function can be used to preserve locks 
+                        for a List and Dictionary objects: >
+                            function DumpLocked(obj)
+                                if islocked('a:obj')
+                                    return ["!!vim/Locked", a:obj]
+                                endif
+                            endfunction
 
 add_constructor({tag}, {Constructor})            *yaml-func-add_constructor*
         Define a constructor for a given tag. {Constructor} function must 
