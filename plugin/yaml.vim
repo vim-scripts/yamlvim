@@ -28,6 +28,8 @@ elseif !exists("s:g.pluginloaded")
     "{{{3 Словарные функции
     let s:g.load.dumps_opts=[
                 \["dict", [[["equal", "preserve_locks"], ["bool", ""]],
+                \          [["equal", "key_sort"], ["or", [["bool", ""],
+                \                                          ["type", 2]]]],
                 \          [["equal", "custom_tags"],
                 \           ["allst", ["type", 2]]]]],
                 \{}, {}]
@@ -320,6 +322,8 @@ let s:g.p={
             \"emsg": {
             \        "spna": "special characters are not allowed",
             \     "cexists": "Constructor for this tag already exists",
+            \       "infun": "In function %s:",
+            \       "unexc": "Got %sError:",
             \},
             \"etype": {
             \        "notimp": "NotImplemented",
@@ -704,9 +708,11 @@ function s:F.load.Loader.__doerr(e, selfname, class, msgid, context_mark,
         let msg=get(s:g.p.ee, a:msgid, a:msgid[0])
     endif
     let [context, problem]=split(msg, '@|', 1)
+    let context=printf(s:g.p.emsg.unexc, a:class)."\n".context
     if type(a:selfname)==type("")
-        let context="In function ".a:selfname.":\n".context
+        let context=printf(s:g.p.emsg.infun, a:selfname)."\n".context
     endif
+    let context=substitute(context, '\_s\+$', '', '')
     let note=get(a:000, 0, "")
     return call(self[a:e], [a:class, context, a:context_mark, problem,
                 \           a:problem_mark, note], self)
@@ -3904,7 +3910,17 @@ function s:F.dump.dumpdct(obj, r, dumped, opts)
         return a:r
     endif
     let indent=matchstr(a:r[-1], '^ *')
-    for [key, Value] in items(a:obj)
+    let keylist=keys(a:obj)
+    let Sortarg=get(a:opts, "key_sort", 0)
+    if !(type(Sortarg)==type(0) && Sortarg==0)
+        if type(Sortarg)==2
+            call sort(keylist, Sortarg)
+        else
+            call sort(keylist)
+        endif
+    endif
+    for key in keylist
+        let Value=get(a:obj, key)
         call add(a:r, indent.'  ')
         if islocked('a:obj[key]') && get(a:opts, "preserve_locks", 0)
             let a:r[-1].='!!vim/Locked'

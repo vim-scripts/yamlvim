@@ -46,6 +46,12 @@ dumps({data}[, {join}[, {opts}]])                          *yaml-func-dumps*
         preserve_locks  If this key is present and is 1, then it will add 
                         a tag !!vim/Locked{type} to any locked variable, so 
                         that locks can be restored
+        key_sort        If this key is present and is 1, then dictionary keys 
+                        are sorted before dumping. It also accepts 0 for no 
+                        sorting and any function that does accept |sort()| 
+                        built-in (note that it accepts only function 
+                        references, not function names). Default: keep list 
+                        returned by |keys()| function unsorted.
         custom_tags     If this key is present and contains a list of function 
                         references, then for every dumped object if one of the 
                         functions in custom_tags list being given this object 

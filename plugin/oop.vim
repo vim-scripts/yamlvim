@@ -68,6 +68,7 @@ let s:g.p={
             \"emsg": {
             \   "classexists": "Class with such name already exists",
             \     "classnfnd": "Class with such name not found",
+            \     "uncexcept": "Uncaught exception “%s”",
             \},
             \"etype": {
             \   "perm": "PermissionDenied",
@@ -221,6 +222,10 @@ function s:F.bi.Exception.warn()
     echo str
     echohl None
     return str
+endfunction
+"{{{4 bi.__str__
+function s:F.bi.Exception.__str__()
+    return printf(s:g.p.emsg.uncexcept, self.__class__)
 endfunction
 "{{{3 Создание классов
 call s:F.bi.setclass("Exception")
