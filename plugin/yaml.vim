@@ -292,6 +292,9 @@ let s:g.p={
             \     "dcthash": "While constructing a mapping node@|".
             \                "found a dictionary that cannot be used as ".
             \                'a dictionary key',
+            \     "dctfunc": "While constructing a mapping node@|".
+            \                "found a function reference that cannot be used ".
+            \                "as a dictionary key",
             \    "nullhash": "While constructing a mapping node@|".
             \                "found an empty value that cannot be used as ".
             \                'a dictionary key',
@@ -346,9 +349,9 @@ let s:F.plug.oop =s:F.plug.load.getfunctions("oop")
 "{{{2 main: eerror, destruct, option
 "{{{3 main.destruct: выгрузить плагин
 function s:F.main.destruct()
-    for Cdf in s:g.load.classdeletes
-        call call(Cdf, [], {})
-        unlet Cdf
+    for l:Cdf in s:g.load.classdeletes
+        call call(l:Cdf, [], {})
+        unlet l:Cdf
     endfor
     unlet s:g
     unlet s:F
@@ -823,13 +826,12 @@ function s:F.load.Reader.get_mark()
 endfunction
 "{{{4 load.Reader.update_raw (self + ([UInt])) -> _
 function s:F.load.Reader.update_raw(...)
-    " TODO investigate perfomance--size
     let size=4096
     if a:000!=[]
         let size=a:000[0]
     endif
     " self.read(size)
-    let data=self.stream[(self.stream_pointer):(size)]
+    let data=matchstr(self.stream, '^.\{0,'.size.'}', self.stream_pointer)
     let self.raw_buffer.=data
     let self.stream_pointer+=len(data)
     if data==#""
@@ -1321,7 +1323,7 @@ function s:F.load.Scanner.fetch_value()
         let self.allow_simple_key=0
     else
         if !self.flow_level && !self.allow_simple_key
-            call self._raise(selfname, "Scanner", ["mnotall"], 0, self.get_mark())
+            call self._raise(selfname, "Scanner", "mnotall", 0, self.get_mark())
         endif
         if !self.flow_level
             if self.add_indent(self.column)
@@ -1908,11 +1910,11 @@ function s:F.load.Scanner.scan_flow_scalar_spaces(double, start_mark)
     call self.forward(length)
     let ch=self.peek()
     if ch==#''
-        call self._raise(selfname, "Scanner", "qseos", start_mark,
+        call self._raise(selfname, "Scanner", "qseos", a:start_mark,
                     \    self.get_mark())
     elseif ch=~#'^['.(s:g.yaml.linebreak).']$'
         let line_break=self.scan_line_break()
-        let breaks=self.scan_flow_scalar_breaks(a:double, start_mark)
+        let breaks=self.scan_flow_scalar_breaks(a:double, a:start_mark)
         if line_break!=#"\n"
             call add(chunks, line_break)
         elseif breaks==[]
@@ -3018,8 +3020,7 @@ function s:F.load.BaseConstructor.get_single_data()
 endfunction
 "{{{4 load.BaseConstructor.construct_document
 function s:F.load.BaseConstructor.construct_document(node)
-    let data=self.construct_object(a:node)
-    return data
+    return self.construct_object(a:node)
 endfunction
 "{{{4 load.BaseConstructor.construct_object
 function s:F.load.BaseConstructor.construct_object(node)
@@ -3059,13 +3060,13 @@ function s:F.load.BaseConstructor.construct_object(node)
         endif
     endif
     if tag_suffix is 0
-        let data=call(constructor.f, [a:node], self)
+        let l:Data=call(constructor.f, [a:node], self)
     else
-        let data=call(constructor.f, [a:node, tag_suffix], self)
+        let l:Data=call(constructor.f, [a:node, tag_suffix], self)
     endif
-    let self.constructed_objects[a:node.id]=data
+    let self.constructed_objects[a:node.id]=l:Data
     silent! unlet self.recursive_objects[a:node.id]
-    return data
+    return l:Data
 endfunction
 "{{{4 load.BaseConstructor.construct_scalar :: NodeConstructor
 function s:F.load.BaseConstructor.construct_scalar(node, ...)
@@ -3100,17 +3101,17 @@ function s:F.load.BaseConstructor.construct_mapping(node)
     let mapping={}
     let self.constructed_objects[a:node.id]=mapping
     for [key_node, value_node] in a:node.value
-        let key=self.construct_object(key_node)
-        let tkey=type(key)
+        let l:Key=self.construct_object(key_node)
+        let tkey=type(l:Key)
         if tkey!=type("")
             if tkey==type(0)
-                let key=string(key)
+                let l:Key=string(l:Key)
                 call self._warn(selfname, "Constructor", "numstr",
                             \   a:node.start_mark, key_node.start_mark)
             elseif tkey==type(0.0)
-                let tmp=string(key)
-                unlet key
-                let key=tmp
+                let tmp=string(l:Key)
+                unlet l:Key
+                let l:Key=tmp
                 call self._warn(selfname, "Constructor", "fltstr",
                             \   a:node.start_mark, key_node.start_mark)
             elseif tkey==type([])
@@ -3119,15 +3120,18 @@ function s:F.load.BaseConstructor.construct_mapping(node)
             elseif tkey==type({})
                 call self._raise(selfname, "Constructor", "dcthash"
                             \    a:node.start_mark, key_node.start_mark)
+            elseif tkey==2
+                call self._raise(selfname, "Constructor", "dctfunc"
+                            \    a:node.start_mark, key_node.start_mark)
             endif
-        elseif key==#""
+        elseif l:Key==#""
             call self._raise(selfname, "Constructor", "nullhash",
                         \    a:node.start_mark, key_node.start_mark)
         endif
-        let value=self.construct_object(value_node)
-        let mapping[key]=value
-        unlet key
-        unlet value
+        let l:Value=self.construct_object(value_node)
+        let mapping[l:Key]=l:Value
+        unlet l:Key
+        unlet l:Value
     endfor
     return mapping
 endfunction
@@ -3363,10 +3367,10 @@ function s:F.load.SafeConstructor.construct_yaml_omap(node)
                         \    a:node.start_mark, subnode.start_mark)
         endif
         let [key_node, value_node]=subnode.value[0]
-        let key=self.construct_object(key_node)
+        let l:Key=self.construct_object(key_node)
         let value=self.construct_object(value_node)
-        call add(omap, [key, value])
-        unlet key
+        call add(omap, [l:Key, value])
+        unlet l:Key
         unlet value
     endfor
     return omap
@@ -3393,11 +3397,11 @@ function s:F.load.SafeConstructor.construct_yaml_pairs(node)
                         \    a:node.start_mark, subnode.start_mark)
         endif
         let [key_node, value_node]=subnode.value[0]
-        let key=self.construct_object(key_node)
-        let value=self.construct_object(value_node)
-        call add(pairs, [key, value])
-        unlet key
-        unlet value
+        let l:Key=self.construct_object(key_node)
+        let l:Value=self.construct_object(value_node)
+        call add(pairs, [l:Key, l:Value])
+        unlet l:Key
+        unlet l:Value
     endfor
     return pairs
 endfunction
@@ -3451,14 +3455,14 @@ endfunction
 function s:F.load.Constructor.construct_vim_locked(node, tag_suffix)
     let tag='tag:yaml.org,2002:vim/'.a:tag_suffix
     if has_key(self.yaml_constructors, tag)
-        let data=call(self.yaml_constructors[tag], [a:node], self)
+        let l:Data=call(self.yaml_constructors[tag], [a:node], self)
     else
         let a:node.tag=tag
         unlet self.recursive_objects[a:node.id]
-        let data=self.construct_object(a:node)
+        let l:Data=self.construct_object(a:node)
     endif
-    lockvar 1 data
-    return data
+    lockvar 1 l:Data
+    return l:Data
 endfunction
 "{{{4 load.Constructor.construct_vim_dictionary
 function s:F.load.Constructor.construct_vim_dictionary(node)
@@ -3476,17 +3480,17 @@ function s:F.load.Constructor.construct_vim_dictionary(node)
         else
             let locked=0
         endif
-        let key=self.construct_object(key_node)
-        let tkey=type(key)
+        let l:Key=self.construct_object(key_node)
+        let tkey=type(l:Key)
         if tkey!=type("")
             if tkey==type(0)
-                let key=string(key)
+                let l:Key=string(l:Key)
                 call self._warn(selfname, "Constructor", "numstr",
                             \   a:node.start_mark, key_node.start_mark)
             elseif tkey==type(0.0)
-                let tmp=string(key)
-                unlet key
-                let key=tmp
+                let tmp=string(l:Key)
+                unlet l:Key
+                let l:Key=tmp
                 call self._warn(selfname, "Constructor", "fltstr",
                             \   a:node.start_mark, key_node.start_mark)
             elseif tkey==type([])
@@ -3495,18 +3499,21 @@ function s:F.load.Constructor.construct_vim_dictionary(node)
             elseif tkey==type({})
                 call self._raise(selfname, "Constructor", "dcthash"
                             \    a:node.start_mark, key_node.start_mark)
+            elseif tkey==2
+                call self._raise(selfname, "Constructor", "dctfunc"
+                            \    a:node.start_mark, key_node.start_mark)
             endif
-        elseif key==#""
+        elseif l:Key==#""
             call self._raise(selfname, "Constructor", "nullhash",
                         \    a:node.start_mark, key_node.start_mark)
         endif
-        let value=self.construct_object(value_node)
-        let mapping[key]=value
+        let l:Value=self.construct_object(value_node)
+        let mapping[l:Key]=l:Value
         if locked
-            lockvar 1 mapping[key]
+            lockvar 1 mapping[l:Key]
         endif
-        unlet key
-        unlet value
+        unlet l:Key
+        unlet l:Value
     endfor
     return mapping
 endfunction
@@ -3813,8 +3820,10 @@ function s:F.dump.dumpstr(obj, r, dumped, opts, ...)
     "{{{4 Представление строки без ""
     let spstr=(a:obj=~#'^[0-9]' || index(s:g.dump.jyspecials, a:obj)!=-1)
     if a:obj=~#'^['.s:g.dump.disallowedstart.']\@!'.
+                \'\%([:\-?]['.s:g.yaml.whitespace.']\)\@!'.
                 \'\%(['.s:g.dump.disallowedp.']\@!'.
-                \   s:g.yaml.printchar.'\)*'.
+                \   '\%([:\-?]['.s:g.yaml.whitespace.']\)\@!'.
+                \   s:g.yaml.printchar.'\)\+'.
                 \'['.s:g.dump.disallowedend.']\@<!$' &&
                 \!(a:000!=[] && spstr)
         if spstr
@@ -3889,7 +3898,7 @@ function s:F.dump.dumplst(obj, r, dumped, opts)
     endif
     let indent=matchstr(a:r[-1], '^ *')
     let i=0
-    for Item in a:obj
+    for l:Item in a:obj
         call add(a:r, indent.'  -')
         let tobji=type(a:obj[i])
         let islocked=0
@@ -3897,8 +3906,8 @@ function s:F.dump.dumplst(obj, r, dumped, opts)
             let a:r[-1].=' !!vim/LockedItem/'
             let islocked=1
         endif
-        call s:F.dump.dump(Item, a:r, a:dumped, a:opts, islocked)
-        unlet Item
+        call s:F.dump.dump(l:Item, a:r, a:dumped, a:opts, islocked)
+        unlet l:Item
         let i+=1
     endfor
     return a:r
@@ -3911,30 +3920,31 @@ function s:F.dump.dumpdct(obj, r, dumped, opts)
     endif
     let indent=matchstr(a:r[-1], '^ *')
     let keylist=keys(a:obj)
-    let Sortarg=get(a:opts, "key_sort", 0)
-    if !(type(Sortarg)==type(0) && Sortarg==0)
-        if type(Sortarg)==2
-            call sort(keylist, Sortarg)
+    let l:Sortarg=get(a:opts, "key_sort", 0)
+    if !(type(l:Sortarg)==type(0) && l:Sortarg==0)
+        if type(l:Sortarg)==2
+            call sort(keylist, l:Sortarg)
         else
             call sort(keylist)
         endif
     endif
     for key in keylist
-        let Value=get(a:obj, key)
+        let l:Value=get(a:obj, key)
         call add(a:r, indent.'  ')
         if islocked('a:obj[key]') && get(a:opts, "preserve_locks", 0)
             let a:r[-1].='!!vim/Locked'
         endif
         call s:F.dump.dump(key, a:r, a:dumped, a:opts, -1, 0)
         let a:r[-1].=":"
-        call s:F.dump.dump(Value, a:r, a:dumped, a:opts, 0)
-        unlet Value
+        call s:F.dump.dump(l:Value, a:r, a:dumped, a:opts, 0)
+        unlet l:Value
     endfor
     return a:r
 endfunction
 "{{{3 dump.dumpflt
 function s:F.dump.dumpflt(obj, r, dumped, opts)
-    let a:r[-1].=' '.string(a:obj)
+    let a:r[-1].=' '.substitute(substitute(string(a:obj), 'e\zs\ze\d', '+', ''),
+                \               '\ze\(inf\|nan\)', '.', '')
     return a:r
 endfunction
 "{{{3 dump.dump
@@ -3949,7 +3959,7 @@ function s:F.dump.dump(obj, r, dumped, opts, islocked, ...)
         let a:r[-1].=" *".anchor
         return a:r
     endif
-    let obj=a:obj
+    let l:Obj=a:obj
     if a:islocked==1
         if islocked('obj')
             let a:r[-1].='Locked'
@@ -3957,20 +3967,20 @@ function s:F.dump.dump(obj, r, dumped, opts, islocked, ...)
         let a:r[-1].=s:g.dump.typenames[type(obj)]
     elseif a:islocked==0
         let tag=""
-        for Function in a:opts.custom_tags
-            let result=call(Function, [obj], {})
+        for l:Function in a:opts.custom_tags
+            let result=call(l:Function, [l:Obj], {})
             if type(result)==type([]) && len(result)==2 &&
                         \type(result[0])==type("")
-                let [tag, obj]=result
+                let [tag, l:Obj]=result
                 break
             endif
-            unlet Function result
+            unlet l:Function result
         endfor
         if tag==#""
             if get(a:opts, 'preserve_locks', 0)
-                let tobj=type(obj)
+                let tobj=type(l:Obj)
                 if tobj==type([]) || tobj==type({})
-                    let a:r[-1].=' !!vim/'.((islocked('obj'))?("Locked"):("")).
+                    let a:r[-1].=' !!vim/'.((islocked('l:Obj'))?("Locked"):("")).
                                 \s:g.dump.typenames[tobj]
                 endif
             endif
@@ -3978,8 +3988,8 @@ function s:F.dump.dump(obj, r, dumped, opts, islocked, ...)
             let a:r[-1].=((empty(a:000))?(" "):("")).tag
         endif
     endif
-    call call(s:g.dump.types[type(obj)],
-                \[obj, a:r, a:dumped, a:opts]+((type(obj)==type(""))?
+    call call(s:g.dump.types[type(l:Obj)],
+                \[l:Obj, a:r, a:dumped, a:opts]+((type(l:Obj)==type(""))?
                 \                                   ([0]):
                 \                                   ([])),
                 \{})
