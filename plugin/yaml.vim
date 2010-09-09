@@ -29,9 +29,9 @@ elseif !exists("s:g.pluginloaded")
     let s:g.load.dumps_opts=[
                 \["dict", [[["equal", "preserve_locks"], ["bool", ""]],
                 \          [["equal", "key_sort"], ["or", [["bool", ""],
-                \                                          ["type", 2]]]],
+                \                                          ["isfunc", 1]]]],
                 \          [["equal", "custom_tags"],
-                \           ["allst", ["type", 2]]]]],
+                \           ["allst", ["isfunc", 1]]]]],
                 \{}, {}]
     let s:g.load.f=[["loads", "load.loads", {  "model": "simple",
                 \                           "required": [["type", type("")]]}],
@@ -50,7 +50,7 @@ elseif !exists("s:g.pluginloaded")
                 \                                           ["keyof",
                 \                                            s:g.constructors[0]
                 \                                                          ]]]],
-                \                                        ["type", 2]]}],
+                \                                        ["isfunc", 0]]}],
                 \   ["add_multi_constructor", "load.add_multi_constructor",
                 \                           {  "model": "simple",
                 \                           "required": [["and",
@@ -59,7 +59,7 @@ elseif !exists("s:g.pluginloaded")
                 \                                           ["keyof",
                 \                                            s:g.constructors[1]
                 \                                                          ]]]],
-                \                                        ["type", 2]]}],
+                \                                        ["isfunc", 0]]}],
                 \   ["del_constructor", "load.del_constructor",
                 \                           {  "model": "simple",
                 \                           "required": [["and",
@@ -321,6 +321,8 @@ let s:g.p={
             \      "ualias": "While constructing a vim list@|".
             \                "found unknown locked alias “%s”",
             \        "ndef": "Variable %s used before defining",
+            \    "ambcolon": "While scanning a plain scalar@|".
+            \                "found ambigious ':'",
             \},
             \"emsg": {
             \        "spna": "special characters are not allowed",
@@ -337,6 +339,7 @@ let s:g.p={
             \"markmessage": "  in “%s”, line %u, column %u",
             \"remessage": "Unacceptable character #x%04x: “%s” in “%s”, ".
             \             "position %u",
+            \"ambcolonnote": "Assuming that it separates key from value",
         \}
 call add(s:g.load.f[3][2].required[0][1][1], s:g.p.emsg.cexists)
 call add(s:g.load.f[4][2].required[0][1][1], s:g.p.emsg.cexists)
@@ -1979,7 +1982,7 @@ function s:F.load.Scanner.scan_plain()
                     \                           (s:g.yaml.linebreak).']\=$')
             " XXX
             call self._warn(selfname, "Scanner", "ambcolon", start_mark,
-                        \   self.get_mark())
+                        \   self.get_mark(), s:g.p.ambcolonnote)
         endif
         if length==0
             break
