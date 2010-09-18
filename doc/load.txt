@@ -8,7 +8,8 @@ CONTENTS                                                     *load-contents*
         2.2. Functions                            |load-functions|
         2.3. `Autocommands'                       |load-autocommands|
     3. Plugin registration                        |load-reg|
-    4. Options                                    |load-options|
+    4. Sessions                                   |load-sessions|
+    5. Options                                    |load-options|
 
 =============================================================================
 1. Intro                                                        *load-intro*
@@ -88,11 +89,17 @@ options in g:loadOptions dictionary (Note that it is a very bad idea).
 :LoadCommand autocmd {event} {plugin} {command}        *load-action-autocmd*
             Create an `autocommand', see |load-autocommands|. For 
             a description of arguments see |load-func-autocmd|. Note that you 
-            need to escape all spaces in {command}.
+            need to escape a backslash in {command}.
 :LoadCommand autocmd! {event}[ {plugin}[ {command}]]  *load-action-autocmd!*
             Delete an `autocommand', see |load-autocommands|. For 
             a description of arguments see |load-func-delautocmd|. Note that 
-            you need to escape all spaces in {command}.
+            you need to escape a backslash in {command}.
+:LoadCommand mksession {filename}                    *load-action-mksession*
+            Creates a session: two files, {filename} and {root}x.vim, where 
+            {root} is {filename} with extension removed, see |:mkssession| for 
+            information about filenames and |load-sessions| about how to 
+            implement session support in your plugin. This command always 
+            overwrites existing files.
 
 -----------------------------------------------------------------------------
 2.2. Functions                                              *load-functions*
@@ -181,6 +188,11 @@ delautocmd({event}[, {plugin}[, {command}]])         *load-func-delautocmd*
         event and given plugin (if any). If both {plugin} and {command} 
         arguments are given, then it filters out all autocommands that match 
         all of {event}, {plugin} and {command}.
+
+restoresession({filename})                        *load-func-restoresession*
+        Restore additional session information stored by 
+        |load-action-mksession|. Note that you should not call this function 
+        by yourself, it should be used from session file only.
 
 -----------------------------------------------------------------------------
 2.3. `Autocommands'                                      *load-autocommands*
@@ -368,7 +380,18 @@ requires :: [[{PlugName}, {APIVersion}]]                 *load-reg-requires*
         {APIVersion} has syntax equal to |load-reg-apiversion|.
 
 =============================================================================
-4. Options                                                   *load-options*
+4. Sessions                                                 *load-sessions*
+
+All plugins that use vim plugin loader can easily implement a sessions 
+support: all you need is to define |load-reg-F|.main.session function which 
+will take either no or one argument. When session file is created using 
+|load-action-session|, this function will be called with no arguments and its 
+result will be stored in {root}x.vim file ({root} is a session file name with 
+extension removed). When session is restored, this function will be called 
+with the only argument: value stored on previous step.
+
+=============================================================================
+5. Options                                                   *load-options*
 
 Plugin registered by |load-func-registerplugin| automatically gets some 
 options:

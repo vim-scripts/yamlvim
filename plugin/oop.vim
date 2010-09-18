@@ -127,7 +127,7 @@ endfunction
 function s:F.oop.getc(class, first)
     let r={}
     if a:class.vars!={}
-        call extend(r, a:class.vars)
+        call extend(r, deepcopy(a:class.vars))
     endif
     if has_key(a:class, "F") && a:first
         call extend(r, a:class.F)
@@ -183,9 +183,9 @@ endfunction
 "{{{2 main: eerror, destruct, option
 "{{{3 main.destruct: выгрузить плагин
 function s:F.main.destruct()
-    for Cdf in s:g.bi.classdeletes
-        call call(Cdf, [], {})
-        unlet Cdf
+    for l:Cdf in s:g.bi.classdeletes
+        call call(l:Cdf, [], {})
+        unlet l:Cdf
     endfor
     unlet s:g
     unlet s:F
@@ -218,7 +218,7 @@ endfunction
 "{{{4 bi.Exception.warn
 function s:F.bi.Exception.warn()
     let str=self.__str__()
-    echohl Error
+    echohl ErrorMsg
     echo str
     echohl None
     return str
