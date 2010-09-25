@@ -30,6 +30,7 @@ elseif !exists("s:g.pluginloaded")
                 \["dict", [[["equal", "preserve_locks"], ["bool", ""]],
                 \          [["equal", "key_sort"], ["or", [["bool", ""],
                 \                                          ["isfunc", 1]]]],
+                \          [["equal", "all_flow"], ["bool", ""]],
                 \          [["equal", "custom_tags"],
                 \           ["allst", ["isfunc", 1]]]]],
                 \{}, {}]
@@ -94,7 +95,7 @@ elseif !exists("s:g.pluginloaded")
     "{{{2 Регистрация дополнения
     let s:F.plug.load=load#LoadFuncdict()
     let s:g.reginfo=s:F.plug.load.registerplugin({
-                \"apiversion": "0.0",
+                \"apiversion": "0.1",
                 \"sid": s:g.scriptid,
                 \"funcdict": s:F,
                 \"globdict": s:g,
@@ -317,6 +318,7 @@ let s:g.p={
             \                "for the tag %s",
             \     "fscript": "@|Unable to get script function “%s”",
             \      "fundef": "@|Function “%s” does not exist",
+            \    "finvname": "@|String “%s” is not a valid function name",
             \        "fnum": "@|Cannot find function with number “%u”",
             \      "ualias": "While constructing a vim list@|".
             \                "found unknown locked alias “%s”",
@@ -829,7 +831,7 @@ function s:F.load.Reader.get_mark()
 endfunction
 "{{{4 load.Reader.update_raw (self + ([UInt])) -> _
 function s:F.load.Reader.update_raw(...)
-    let size=4096
+    let size=128
     if !empty(a:000)
         let size=a:000[0]
     endif
@@ -3443,7 +3445,13 @@ function s:F.load.Constructor.construct_vim_function(node)
             call self._raise(selfname, "Constructor", ["fscript", value],
                         \    0, a:node.start_mark)
         endif
-        if exists('*'.value)
+        try
+            let fex=exists('*'.value)
+        catch /^Vim\%((\a\+)\)\=:E129/
+            call self._raise(selfname, "Constructor", ["finvname", value],
+                        \    0, a:node.start_mark)
+        endtry
+        if exists('fex') && fex
             return function(value)
         else
             call self._raise(selfname, "Constructor", ["fundef", value],
@@ -3822,7 +3830,8 @@ let s:g.dump.escrev={
 function s:F.dump.dumpstr(obj, r, dumped, opts, ...)
     "{{{4 Представление строки без ""
     let spstr=(a:obj=~#'^[0-9]' || index(s:g.dump.jyspecials, a:obj)!=-1)
-    if a:obj=~#'^['.s:g.dump.disallowedstart.']\@!'.
+    if !get(a:opts, "all_flow", 0) &&
+                \a:obj=~#'^['.s:g.dump.disallowedstart.']\@!'.
                 \'\%([:\-?]['.s:g.yaml.whitespace.']\)\@!'.
                 \'\%(['.s:g.dump.disallowedp.']\@!'.
                 \   '\%([:\-?]['.s:g.yaml.whitespace.']\)\@!'.
@@ -3901,8 +3910,15 @@ function s:F.dump.dumplst(obj, r, dumped, opts)
     endif
     let indent=matchstr(a:r[-1], '^ *')
     let i=0
+    if get(a:opts, 'all_flow', 0)
+        call add(a:r, indent.'  [')
+    endif
     for l:Item in a:obj
-        call add(a:r, indent.'  -')
+        if get(a:opts, 'all_flow', 0)
+            call add(a:r, indent.'    ')
+        else
+            call add(a:r, indent.'  -')
+        endif
         let tobji=type(a:obj[i])
         let islocked=0
         if islocked('a:obj[i]') && get(a:opts, "preserve_locks", 0)
@@ -3911,8 +3927,14 @@ function s:F.dump.dumplst(obj, r, dumped, opts)
         endif
         call s:F.dump.dump(l:Item, a:r, a:dumped, a:opts, islocked)
         unlet l:Item
+        if get(a:opts, 'all_flow', 0)
+            let a:r[-1].=','
+        endif
         let i+=1
     endfor
+    if get(a:opts, 'all_flow', 0)
+        call add(a:r, indent.'  ]')
+    endif
     return a:r
 endfunction
 "{{{3 dump.dumpdct
@@ -3931,9 +3953,16 @@ function s:F.dump.dumpdct(obj, r, dumped, opts)
             call sort(keylist)
         endif
     endif
+    if get(a:opts, 'all_flow', 0)
+        call add(a:r, indent.'  {')
+    endif
     for key in keylist
         let l:Value=get(a:obj, key)
-        call add(a:r, indent.'  ')
+        if get(a:opts, 'all_flow', 0)
+            call add(a:r, indent.'    ')
+        else
+            call add(a:r, indent.'  ')
+        endif
         if islocked('a:obj[key]') && get(a:opts, "preserve_locks", 0)
             let a:r[-1].='!!vim/Locked'
         endif
@@ -3941,7 +3970,13 @@ function s:F.dump.dumpdct(obj, r, dumped, opts)
         let a:r[-1].=":"
         call s:F.dump.dump(l:Value, a:r, a:dumped, a:opts, 0)
         unlet l:Value
+        if get(a:opts, 'all_flow', 0)
+            let a:r[-1].=','
+        endif
     endfor
+    if get(a:opts, 'all_flow', 0)
+        call add(a:r, indent.'  }')
+    endif
     return a:r
 endfunction
 "{{{3 dump.dumpflt
@@ -4009,6 +4044,9 @@ function s:F.dump.dumps(obj, join, opts)
         let a:opts.custom_tags=[]
     endif
     call s:F.dump.dump(a:obj, r, {}, a:opts, 0)
+    if get(a:opts, 'all_flow', 0)
+        call filter(r, 'v:val[-1:]!=#" "')
+    endif
     return a:join ? join(r, "\n") : r
 endfunction
 "{{{2 mng: main

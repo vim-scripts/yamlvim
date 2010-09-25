@@ -52,6 +52,10 @@ dumps({data}[, {join}[, {opts}]])                          *yaml-func-dumps*
                         built-in (note that it accepts only function 
                         references, not function names). Default: keep list 
                         returned by |keys()| function unsorted.
+        all_flow        If this key is present and is 1, then instead of using 
+                        block styles of collections and mappings and plain 
+                        (unquoted) flow scalar style, it will use only flow 
+                        and double-quoted styles.
         custom_tags     If this key is present and contains a list of function 
                         references, then for every dumped object if one of the 
                         functions in custom_tags list being given this object 
