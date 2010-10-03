@@ -43,8 +43,8 @@ elseif !exists("s:g.pluginloaded")
                 \"dictfunctions": s:g.load.f,
                 \          "sid": s:g.load.sid,
                 \   "scriptfile": s:g.load.scriptfile,
-                \   "apiversion": "0.4",
-                \     "requires": [["load", '0.0']],
+                \   "apiversion": "0.5",
+                \     "requires": [["load", '0.6']],
             \})
     let s:F.main._eerror=s:g.reginfo.functions.eerror
     "}}}2
@@ -107,9 +107,11 @@ let s:g.p={
             \    "ival": "Invalid value",
             \   "kival": "Invalid value for key “%s”",
             \   "eival": "Invalid value in position %u",
+            \   "elval": "Invalid list item with index %u",
             \   "lival": "Invalid list of arguments starting from %u",
             \    "ilen": "Invalid length: expected %u, but got %u",
             \    "<len": "Invalid length: expected at least %u, but got %u",
+            \    ">len": "Invalid length: expected at most %u, but got %u",
             \    "rlen": "length of argument list must match number of ".
             \            "required arguments",
             \    "mlen": "length of argument list must not be greater then ".
@@ -123,7 +125,8 @@ let s:g.p={
             \    "topt": "Too many optional arguments",
             \   "tslst": "Too short list: expected at least %u, but got %u",
             \   "tllst": "Too long list: expected at most %u, but got %u",
-            \   "eexpr": "Expression resulted in error",
+            \   "eexpr": "Expression resulted in error: %s",
+            \   "efunc": "Running function failed with error “%s”",
             \   "evalf": "Eval failed",
             \    "chkf": "Check #%u failed",
             \    "chks": "Check #%u succeed, but some previous check failed",
@@ -725,8 +728,6 @@ let s:g.achk.simplechecks={
             \"regex": ["type(a:Arg)==type('') && a:Arg=~#a:Chk",
             \          "['nreg', s:F.stuf.string(a:Chk)], ".
             \          "s:F.stuf.string(a:Arg)"],
-            \ "func": ["!!call(a:Chk, [a:Arg], {})",
-            \          "['nfunc', s:F.stuf.string(a:Chk)]"],
             \ "type": ["type(a:Arg)==a:Chk",
             \          "['type'], type(a:Arg).'≠'.a:Chk"],
             \ "bool": ["index([0, 1], a:Arg)!=-1", "['bool']"],
@@ -748,13 +749,25 @@ for s:C in keys(s:g.achk.simplechecks)
                 \"endfunction"
 endfor
 unlet s:C
+"{{{3 achk.func:
+let s:F.achk._call=load#CreateDictFunction('Chk, Arg',
+            \'return !!call(a:Chk, [a:Arg], {})')
+function s:F.achk.func(Chk, Arg)
+    let selfname="achk.func"
+    try
+        return !!s:F.achk._call(a:Chk, a:Arg)
+    catch
+        return s:F.main.eerror(selfname, "chk", ["efunc", v:exception])
+    endtry
+endfunction
 "{{{3 achk.eval:
+let s:F.achk._eval=load#CreateDictFunction('chk, Arg', 'return eval(a:chk)')
 function s:F.achk.eval(chk, Arg)
     let selfname="achk.eval"
     try
-        return !!eval(a:chk)
+        return !!s:F.achk._eval(a:chk, a:Arg)
     catch
-        return s:F.main.eerror(selfname, "chk", ["eexpr"], v:exception)
+        return s:F.main.eerror(selfname, "chk", ["eexpr", v:exception])
     endtry
 endfunction
 "{{{3 achk.map
@@ -905,12 +918,46 @@ function s:F.achk.chklst(chk, Arg)
     let i=0
     for l:Arg in a:Arg
         if !s:F.achk._main(a:chk[i], l:Arg)
-            return 0
+            return s:F.main.eerror(selfname, "value", ["elval", i])
         endif
         unlet l:Arg
         let i+=1
     endfor
     "}}}4
+    return 1
+endfunction
+"{{{3 achk.optlst:
+function s:F.achk.optlst(chk, Arg)
+    let selfname="achk.optlst"
+    if type(a:Arg)!=type([])
+        return s:F.main.eerror(selfname, "value", ["list"])
+    elseif len(a:Arg)<len(a:chk[0])
+        return s:F.main.eerror(selfname, "value", ["<len", len(a:chk[0]),
+                    \                              len(a:Arg)])
+    elseif len(a:Arg) > (len(a:chk[0])+len(a:chk[1]))
+        return s:F.main.eerror(selfname, "value",
+                    \          [">len", (len(a:chk[0])+len(a:chk[1])),
+                    \           len(a:Arg)])
+    endif
+    let i=0
+    for check in a:chk[0]
+        if !s:F.achk._main(a:chk[0][i], a:Arg[i])
+            return s:F.main.eerror(selfname, "value", ["elval", i])
+        endif
+        let i+=1
+    endfor
+    let j=0
+    let larg=len(a:Arg)
+    for check in a:chk[1]
+        if i==larg
+            return 1
+        endif
+        if !s:F.achk._main(a:chk[1][j], a:Arg[i])
+            return s:F.main.eerror(selfname, "value", ["elval", i])
+        endif
+        let j+=1
+        let i+=1
+    endfor
     return 1
 endfunction
 "{{{3 achk.alllst: Проверить каждый элемент в списке
@@ -1103,6 +1150,7 @@ let s:g.achk.chkchecks={
             \    "num": ["type(l:Chk)==type([])", s:g.p.emsg.list           ],
             \   "nums": ["type(l:Chk)==type([])", s:g.p.emsg.list           ],
             \ "chklst": ["type(l:Chk)==type([])", s:g.p.emsg.list           ],
+            \ "optlst": ["type(l:Chk)==type([])", s:g.p.emsg.list           ],
             \ "alllst": ["type(l:Chk)==type([])", s:g.p.emsg.list           ],
             \   "dict": ["type(l:Chk)==type([])", s:g.p.emsg.list           ],
             \    "len": ["type(l:Chk)==type([]) && len(l:Chk) && len(l:Chk)<=2",
@@ -1114,7 +1162,8 @@ let s:g.achk.chkchecks={
             \    "var": ["type(l:Chk)==type('')", s:g.p.emsg.str            ],
             \   "file": ["type(l:Chk)==type('')", s:g.p.emsg.str            ],
             \  "keyof": ["type(l:Chk)==type({})", s:g.p.emsg.dict           ],
-            \   "func": ["type(l:Chk)==2",        s:g.p.emsg.func           ],
+            \   "func": ["s:F.achk.isfunc(1, l:Chk)",
+            \                                     s:g.p.emsg.func           ],
             \   "type": ["type(l:Chk)==type(0) && l:Chk>=0 && l:Chk<=5",
             \                                     s:g.p.emsg.int            ],
             \ "isfunc": ["type(l:Chk)==type(0) && (l:Chk==1 || l:Chk==0)",
@@ -1170,5 +1219,7 @@ lockvar! s:g
 unlockvar 1 s:g
 unlockvar s:g.achk.error
 unlockvar s:g.comm.rdict
+unlockvar s:g.doredir
+unlockvar s:g.errors
 " vim: ft=vim:ts=8:fdm=marker:fenc=utf-8
 

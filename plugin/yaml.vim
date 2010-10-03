@@ -135,9 +135,8 @@ let s:g.yaml.printable='\x09\x0A\x0D\x20-\x7E'.
 let s:g.yaml.printchar='['.s:g.yaml.printable.']'
 " Vim does not support too wide unicode character ranges, waiting for a patch
 if 1
-    let s:g.yaml.printable='\x09\x0A\x0D\x20-\x7E'.
-                \'\u0085'
-    let s:g.yaml.printchar='\%(\p\|[\x09\x0A\x0D\u0085]\)'
+    let s:g.yaml.printable='\x09\x0A\x0D\x20-\x7E'
+    let s:g.yaml.printchar='\%(\p\|[\x09\x0A\x0D]\|\%u0085\)'
 endif
 " http://www.yaml.org/spec/1.2/spec.html#c-flow-indicator
 let s:g.yaml.flowindicator='\[\]{},'
@@ -331,6 +330,9 @@ let s:g.p={
             \     "cexists": "Constructor for this tag already exists",
             \       "infun": "In function %s:",
             \       "unexc": "Got %sError:",
+            \       "diutf": "Unable to dump string with non-utf character ".
+            \                "in position %u: “%s”. Will be fixed ".
+            \                "in next release",
             \},
             \"etype": {
             \        "notimp": "NotImplemented",
@@ -668,8 +670,8 @@ function s:F.load.ScalarToken.__init__(super, value, plain, start_mark,
     let self.style=a:style
 endfunction
 "{{{3 load.SimpleKey.__init__
-function s:F.load.SimpleKey.__init__(super, token_number, required, index, line,
-            \                        column, mark)
+function s:F.load.SimpleKey.__init__(super, token_number, required, index,
+            \                        line, column, mark)
     let self.token_number=a:token_number
     let self.required=a:required
     let self.index=a:index
@@ -814,7 +816,7 @@ function s:F.load.Reader.__init__(super, stream)
     let self.name="<unicode string>"
     let self.eof=0
     let self.raw_buffer=""
-    " self.check_printable(stream)
+    " self.check_printable(a:stream)
     " let self.buffer=split(a:stream, '\zs')
 endfunction
 "{{{4 load.Reader.get_mark :: (self + ()) -> mark
@@ -1882,7 +1884,7 @@ function s:F.load.Scanner.scan_flow_scalar_non_spaces(double, start_mark)
                 let code=str2nr(self.prefix(length), 16)
                 if code==0
                     call self._warn(selfname, "Scanner", "strnull",
-                                \   start_mark, self.get_mark())
+                                \   a:start_mark, self.get_mark())
                 else
                     call add(chunks, nr2char(code))
                     call self.forward(length)
@@ -1892,11 +1894,11 @@ function s:F.load.Scanner.scan_flow_scalar_non_spaces(double, start_mark)
                 call extend(chunks, self.scan_flow_scalar_breaks(a:double,
                             \                                    a:start_mark))
             elseif ch==#'0'
-                call self._warn(selfname, "Scanner", "strnull", start_mark,
+                call self._warn(selfname, "Scanner", "strnull", a:start_mark,
                             \   self.get_mark())
             else
                 call self._raise(selfname, "Scanner", ["uknesc", ch],
-                            \    start_mark, self.get_mark())
+                            \    a:start_mark, self.get_mark())
             endif
         else
             return chunks
@@ -1938,7 +1940,7 @@ function s:F.load.Scanner.scan_flow_scalar_breaks(double, start_mark)
     while 1
         let prefix=self.prefix(3)
         if (prefix==#'---' || prefix==#'...') && self.peek(3)=~#self.SEPREGEX
-            call self._raise(selfname, "Scanner", "docsepqs", start_mark,
+            call self._raise(selfname, "Scanner", "docsepqs", a:start_mark,
                         \    self.get_mark())
         endif
         while self.peek()=~#'^['.s:g.yaml.whitespace.']$'
@@ -3036,7 +3038,7 @@ function s:F.load.BaseConstructor.construct_object(node)
         call self._raise(selfname, "Constructor", "invrec", 0,
                     \    a:node.start_mark)
     endif
-    " self.recursive_objects[node]=None
+    " self.recursive_objects[a:node]=None
     let self.recursive_objects[a:node.id]=0
     let constructor={}
     let tag_suffix=0
@@ -3861,6 +3863,16 @@ function s:F.dump.dumpstr(obj, r, dumped, opts, ...)
                 " Экранирование
                 let a:r[-1].=s:g.dump.escrev[char]
             elseif chkchar!=#char || (clen==1 && char!~#s:g.yaml.printchar)
+                if chkchar!=#char
+                    call s:F.main.eerror(selfname, "notimp", 1,
+                                \        ["diutf", i, strtrans(chkchar)])
+                    let schnr=chnr
+                    let clen=0
+                    while schnr!=0
+                        let schnr=schnr/0x100
+                        let clen+=1
+                    endwhile
+                endif
                 let i=0
                 while i<clen
                     let a:r[-1].=printf('\x%0.2x', char2nr(chkchar[i]))
@@ -3999,10 +4011,10 @@ function s:F.dump.dump(obj, r, dumped, opts, islocked, ...)
     endif
     let l:Obj=a:obj
     if a:islocked==1
-        if islocked('obj')
+        if islocked('l:Obj')
             let a:r[-1].='Locked'
         endif
-        let a:r[-1].=s:g.dump.typenames[type(obj)]
+        let a:r[-1].=s:g.dump.typenames[type(l:Obj)]
     elseif a:islocked==0
         let tag=""
         for l:Function in a:opts.custom_tags
