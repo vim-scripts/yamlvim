@@ -105,7 +105,7 @@ elseif !exists("s:g.pluginloaded")
                 \"commands": s:g.load.commands,
                 \"dictfunctions": s:g.load.f,
                 \"requires": [["load", '0.0'],
-                \             ["stuf", '0.3'],
+                \             ["stuf", '0.5'],
                 \             ["oop",  '0.1']],
             \})
     let s:F.main.eerror=s:g.reginfo.functions.eerror
@@ -160,7 +160,7 @@ let s:g.yaml.anchorstart='&'
 " http://www.yaml.org/spec/1.2/spec.html#c-indicator
 let s:g.yaml.indicator='\-?:,\[\]{}#&*!|>''"%@`'
 " http://www.yaml.org/spec/1.2/spec.html#ns-char
-let s:g.yaml.nschar='\%(['.(s:g.yaml.whitespace).']\@!'.
+let s:g.yaml.nschar='\%(['.(s:g.yaml.wslbr).']\@!'.
             \(s:g.yaml.printchar).'\)'
 " http://www.yaml.org/spec/1.2/spec.html#ns-directive-name
 let s:g.yaml.nsdirectivenamereg=s:g.yaml.nschar.'\+'
@@ -174,6 +174,9 @@ let s:g.yaml.nstag=s:g.yaml.nsword.'%#;/?:@&=+$,_.~*''()'
 let s:g.yaml.anchorchar='\%(['.(s:g.yaml.flowindicator).
             \                  (s:g.yaml.wslbr).']\@!'.
             \           s:g.yaml.printchar.'\)'
+" http://www.yaml.org/spec/1.2/spec.html#ns-plain-safe(c)
+let s:g.yaml.nsplainsafechar='\%(['.s:g.yaml.flowindicator.']\@!'.
+            \                    s:g.yaml.nschar.'\)'
 "{{{2 Выводимые сообщения
 let s:g.p={
             \"ee": {
@@ -330,9 +333,7 @@ let s:g.p={
             \     "cexists": "Constructor for this tag already exists",
             \       "infun": "In function %s:",
             \       "unexc": "Got %sError:",
-            \       "diutf": "Unable to dump string with non-utf character ".
-            \                "in position %u: “%s”. Will be fixed ".
-            \                "in next release",
+            \      "btdump": "Failed to construct binary with custom tag",
             \},
             \"etype": {
             \        "notimp": "NotImplemented",
@@ -364,6 +365,39 @@ function s:F.main.destruct()
     unlet s:F
     return 1
 endfunction
+"{{{2 comm: is*char, is*nr
+"{{{3 comm.isprintnr
+function s:F.comm.isprintnr(chnr)
+    return (a:chnr==0x09 || a:chnr==0x0A || a:chnr==0x0D || a:chnr==0x85 ||
+                \(   0x20<=a:chnr && a:chnr<=0x00007E) ||
+                \(   0xA0<=a:chnr && a:chnr<=0x00D7FF) ||
+                \( 0xE000<=a:chnr && a:chnr<=0x00FFFD) ||
+                \(0x10000<=a:chnr && a:chnr<=0x10FFFF))
+endfunction
+"{{{3 comm.isprintchar
+function s:F.comm.isprintchar(ch)
+    let chnr=char2nr(a:ch)
+    if nr2char(chnr)!=#a:ch
+        return 0
+    endif
+    return s:F.comm.isprintnr(chnr)
+endfunction
+"{{{3 comm.is*char
+let s:g.comm={}
+let s:g.comm.excludeprint=[
+            \   ["ns",           s:g.yaml.wslbr],
+            \   ["anchor",      (s:g.yaml.flowindicator).(s:g.yaml.wslbr)],
+            \   ["nsplainsafe", (s:g.yaml.flowindicator).(s:g.yaml.wslbr)],
+            \]
+for [s:funcname, s:excluderegex] in s:g.comm.excludeprint
+    execute      "function s:F.comm.is".s:funcname."char(ch)\n".
+                \"    if a:ch=~#'^[".s:excluderegex."]$'\n".
+                \"        return 0\n".
+                \"    endif\n".
+                \"    return s:F.comm.isprintchar(a:ch)\n".
+                \"endfunction"
+    unlet s:funcname s:excluderegex
+endfor
 "{{{2 load: loads
 "{{{3 s:F.load
 call extend(s:F.load, {"Parser":               {},
@@ -940,10 +974,9 @@ function s:F.load.Reader.check_printable(data)
     let selfname='Reader.check_printable'
     let index=0
     for ch in a:data
-        if ch!~#'^'.s:g.yaml.printchar.'\=$' && !(self.index==0 &&
-                    \                             index==0 &&
-                    \                             ch==#"\uFEFF")
-            " XXX this probably cannot determine true position
+        if !empty(ch) && !s:F.comm.isprintchar(ch) && !(self.index==0 &&
+                    \                                   index==0 &&
+                    \                                   ch==#"\uFEFF")
             let position=self.index+(len(self.buffer)-self.pointer)+index
             call self.__raise("Reader", self.name, position, char2nr(ch),
                         \     "utf-8", s:g.p.emsg.spna)
@@ -1513,7 +1546,7 @@ function s:F.load.Scanner.scan_directive_name(start_mark)
     let selfname='Scanner.scan_directive_name'
     let length=0
     let ch=self.peek(length)
-    while ch=~#'^'.s:g.yaml.nschar.'$'
+    while s:F.comm.isnschar(ch)
         let length+=1
         let ch=self.peek(length)
     endwhile
@@ -1628,7 +1661,7 @@ function s:F.load.Scanner.scan_anchor(tokenclass)
     call self.forward()
     let length=0
     let ch=self.peek(length)
-    while ch=~#'^'.(s:g.yaml.anchorchar).'$'
+    while s:F.comm.isanchorchar(ch)
         let length+=1
         let ch=self.peek(length)
     endwhile
@@ -1761,6 +1794,7 @@ function s:F.load.Scanner.scan_block_scalar_indicators(start_mark)
                         \    self.get_mark())
         endif
         call self.forward()
+        let ch=self.peek()
         if chomping==-1 && (ch==#'+' || ch==#'-')
             let chomping=(ch==#'+')
             call self.forward()
@@ -2229,7 +2263,7 @@ function s:F.load.Parser.parse_document_start()
         let [version_, tags]=self.process_directives()
         if !self.check_token("DocumentStartToken")
             call self._raise(selfname, "Parser",
-                        \["ndocstart", self.peek_token().__class__], {},
+                        \["ndocstart", self.peek_token().__class__], 0,
                         \self.peek_token().start_mark)
         endif
         let token=self.get_token()
@@ -3485,13 +3519,18 @@ function s:F.load.Constructor.construct_vim_dictionary(node)
                     \    0, a:node.start_mark)
     endif
     let mapping={}
+    let maplocked=0
     let self.constructed_objects[a:node.id]=mapping
     for [key_node, value_node] in a:node.value
+        let locked=0
+        let binary=0
         if key_node.tag==#'tag:yaml.org,2002:vim/Locked'
             let locked=1
             let key_node.tag='tag:yaml.org,2002:vim/String'
-        else
-            let locked=0
+        elseif key_node.tag==#'tag:yaml.org,2002:Binary/vim/Locked'
+            let locked=1
+            let binary=1
+            let key_node.tag='tag:yaml.org,2002:vim/String'
         endif
         let l:Key=self.construct_object(key_node)
         let tkey=type(l:Key)
@@ -3520,7 +3559,17 @@ function s:F.load.Constructor.construct_vim_dictionary(node)
             call self._raise(selfname, "Constructor", "nullhash",
                         \    a:node.start_mark, key_node.start_mark)
         endif
+        if binary
+            let l:Key=s:F.plug.stuf.base64decode(l:Key)
+        endif
         let l:Value=self.construct_object(value_node)
+        if islocked('mapping')
+            let maplocked=1
+            unlockvar 1 mapping
+        endif
+        if has_key(mapping, l:Key) && islocked('mapping[l:Key]')
+            unlockvar 1 mapping[l:Key]
+        endif
         let mapping[l:Key]=l:Value
         if locked
             lockvar 1 mapping[l:Key]
@@ -3528,6 +3577,9 @@ function s:F.load.Constructor.construct_vim_dictionary(node)
         unlet l:Key
         unlet l:Value
     endfor
+    if maplocked
+        lockvar 1 mapping
+    endif
     return mapping
 endfunction
 "{{{4 load.Constructor.construct_vim_list :: NodeConstructor
@@ -3538,6 +3590,7 @@ function s:F.load.Constructor.construct_vim_list(node)
                     \    0, a:node.start_mark)
     endif
     let sequence=[]
+    let seqlocked=0
     let self.constructed_objects[a:node.id]=sequence
     for value_node in a:node.value
         if value_node.tag[:32]==#'tag:yaml.org,2002:vim/LockedItem/'
@@ -3546,22 +3599,52 @@ function s:F.load.Constructor.construct_vim_list(node)
         elseif value_node.tag[:32]==#'tag:yaml.org,2002:vim/LockedAlias'
             let anchor=self.construct_scalar(value_node)
             if has_key(self.anchors, anchor)
+                if islocked('sequence')
+                    let seqlocked=1
+                    unlockvar 1 sequence
+                endif
                 call add(sequence, self.construct_object(self.anchors[anchor]))
             else
                 call self._raise(selfname, "Constructor", ['ualias', anchor],
                             \    a:node.start_mark, value_node.start_mark)
             endif
-            lockvar sequence[-1]
+            lockvar 1 sequence[-1]
             continue
         else
             let locked=0
         endif
+        if islocked('sequence')
+            let seqlocked=1
+            unlockvar 1 sequence
+        endif
         call add(sequence, self.construct_object(value_node))
         if locked
-            lockvar sequence[-1]
+            lockvar 1 sequence[-1]
         endif
     endfor
+    if seqlocked
+        lockvar 1 seqlocked
+    endif
     return sequence
+endfunction
+"{{{4 load.Constructor.construct_custom_binary
+function s:F.load.Constructor.construct_custom_binary(node, tag_suffix)
+    let selfname='Constructor.construct_custom_binary'
+    if a:node.__class__!=#"ScalarNode"
+        call self._raise(selfname, "Constructor", ["notsc", a:node.__class__],
+                    \    0, a:node.start_mark)
+    endif
+    let tag='tag:yaml.org,2002:'.a:tag_suffix
+    let a:node.value=s:F.plug.stuf.base64decode(
+                \iconv(self.construct_scalar(a:node), "utf-8", 'latin1'))
+    if has_key(self.yaml_constructors, tag)
+        let l:Data=call(self.yaml_constructors[tag], [a:node], self)
+    else
+        let a:node.tag=tag
+        unlet self.recursive_objects[a:node.id]
+        let l:Data=self.construct_object(a:node)
+    endif
+    return l:Data
 endfunction
 "{{{4 load.Constructor.construct_vim_buffer  XXX |
 "{{{4 load.Constructor.construct_vim_window  XXX |
@@ -3741,6 +3824,8 @@ call s:constructor.add_constructor('tag:yaml.org,2002:vim/Funcref',
             \s:F.load.Constructor.construct_vim_function)
 call s:constructor.add_multi_constructor('tag:yaml.org,2002:vim/Locked',
             \s:F.load.Constructor.construct_vim_locked)
+call s:constructor.add_multi_constructor('tag:yaml.org,2002:Binary/',
+            \s:F.load.Constructor.construct_custom_binary)
 unlet s:constructor
 "{{{3 SafeConstructor.add_constructor
 let s:constructor=s:F.plug.oop.getinstance("BaseConstructor")
@@ -3799,24 +3884,371 @@ function s:F.dump.dumpnum(obj, r, dumped, opts)
     let a:r[-1].=" ".a:obj
     return a:r
 endfunction
+"{{{3 dump.choose_scalar_style
+"{{{4 Стили скаляров:
+"   Неблочные:
+"       Простой:
+"           - "ns-char - c-indicator | [?:-] ns-plain-safe(c)"
+"           - "ns-char = nb-char - s-white"
+"           - "nb-char = c-printable - b-char - c-byte-order-mark"
+"           - "c-printable=x09|x0A|x0D|x20-x7E|x85|xA0-xD7FF|xE000-xFFFD|
+"                          x10000-x10FFFF"
+"           - "b-char = \r|\n"
+"           - "c-byte-order-mark = xFEFF"
+"           - "s-white = \t|<SPACE>"
+"           - "ns-plain-safe(c) =
+"                   c=(flow-out|block-key) => ns-plain-safe-out
+"                   c=(flow-in|flow-key)   => ns-plain-safe-in"
+"           - "ns-plain-safe-in  = ns-char - c-flow-indicator"
+"           - "ns-plain-safe-out = ns-char"
+"           - "c-flow-indicator = ,|[|]|{|}"
+"           - "ns-plain-char(c) = (ns-plain-safe(c) - : - #) |
+"                                 (ns-char #) |
+"                                 (: ns-plain-safe(c))"
+"       С одинарными кавычками:
+"           - "nb-single-char = ''|(nb-json - ')"
+"           - "ns-single-char = nb-single-char - s-white"
+"           - "nb-json = x09|x20-x10FFFF"
+"           - "c-single-quoted(n,c) = ' nb-single-text(n,c) '"
+"           - "nb-single-text(n,c) =
+"                   c=(flow-out|flow-in)   => nb-single-multi-line(n)
+"                   c=(block-key|flow-key) => nb-single-one-line"
+"           - "nb-single-one-line = nb-single-char*"
+"           - "nb-single-multi-line(n) = nb-ns-single-in-line
+"                                        (s-single-next-line(n) | s-white*)"
+"           - "nb-ns-single-in-line = (s-white* ns-single-char)*"
+"           - "s-single-next-line(n) = s-flow-folded(n)
+"                                      (ns-single-char nb-ns-single-in-line
+"                                       (s-single-next-line(n) | s-white*))?"
+"       С двойными кавычками:
+"           - "nb-double-char = c-ns-esc-char | (nb-json - \ - ")"
+"           - "ns-double-char = nb-double-char - s-white"
+"           - "c-double-quoted(n,c) = " nb-double-text(n,c) ""
+"           - "nb-double-text(n,c) =
+"                   c=(flow-out|flow-in)   => nb-double-multi-line(n)
+"                   c=(block-key|flow-key) => nb-double-one-line"
+"           - "nb-double-one-line = nb-double-char*"
+"       ...
+"}}}4
+function s:F.dump.choose_scalar_style(scalar, opts, iskey)
+    "{{{4 Пустой скаляр
+    if empty(a:scalar)
+        " Данный выбор не влияет на читабельность и совместим с 'all_flow'
+        return 'double'
+    endif
+    "{{{4 Объявление переменных
+    "{{{5 Возможные стили
+    let plain=1
+    let double=1
+    let single=1
+    let literal=1
+    let folded=1
+    let binary=1
+    "{{{5 Запреты на стили
+    if get(a:opts, 'all_flow', 0)
+        let plain=0
+        let single=0
+        let literal=0
+        let folded=0
+    elseif a:iskey
+        let literal=0
+        let folded=0
+    elseif a:scalar=~#'^['.s:g.yaml.wslbr.']'
+        " В соотвестствии со спецификацией, строки, которые начинаются с лишних 
+        " пробельных символов, не подвергаются line folding. Запрещаем иметь 
+        " folded скаляры, в начале которых находятся пробельные символы, чтобы 
+        " не разбираться с возможными проблемами.
+        let folded=0
+        " Также запрещено в цикле
+        let plain=0
+    endif
+    if a:scalar=~?'\V\^\%(=\|<<\|true\|false\|null\|yes\|no\|on\|off\|~\)\$' ||
+                \a:scalar=~#'['.s:g.yaml.wslbr.']$'
+        let plain=0
+    endif
+    "{{{5 Переменные для цикла
+    let i=0                " Смещение текущего символа
+    let slen=len(a:scalar) " Длина скаляра
+    let prevchar=""        " Предыдущий символ
+    let linelen=0          " Длина текущей строки внутри скаляра
+    let maxlinelen=0       " Максимальная длина строки внутри скаляра
+    let wordlen=0          " Длина текущего слова внутри скаляра
+    let maxwordlen=0       " Максимальная длина слова внутри скаляра
+    " Следующие переменные нужны для принятие решения о выборе между "scalar" 
+    " и 'scalar'
+    let numsquote=0        " Количество символов одинарного штриха
+    let numbsdq=0          " Количество обратных косых черт и двойных штрихов
+    "{{{4 Основной цикл
+    while i<slen
+        "{{{5 Объявление переменных
+        let char=matchstr(a:scalar, '.', i) " Текущий символ
+        let lchar=len(char)                 " Его длина в байтах
+        "{{{5 Символ является непечатным
+        if !s:F.comm.isprintchar(char) || (char==#"\u2029" || char==#"\u2028")
+            let plain=0
+            let single=0
+            let literal=0
+            let folded=0
+            " Байт не является представлением UTF-8 символа
+            if nr2char(char2nr(char))!=#char
+                return 'binary'
+            endif
+        endif
+        "{{{5 Допустим «простой» скаляр
+        if plain
+            " В качестве первого символа простого скаляра недопустимы 
+            " символы-индикаторы (за исключением знака вопроса, двоеточия 
+            " и дефиса, за которыми не следует пробел). Также запрещаем простому 
+            " скаляру начинаться с цифры или точки чтобы не проверять, может ли 
+            " он быть прочитан как число
+            if i==0
+                if ((char=~#'^['.s:g.yaml.indicator.']$' &&
+                            \!(char=~#'^[?:\-]$' &&
+                            \  slen>=2 &&
+                            \  s:F.comm.isnsplainsafechar(
+                            \       matchstr(a:scalar, '.', 1)))) ||
+                            \!s:F.comm.isnsplainsafechar(char)) ||
+                            \a:scalar=~#'^[+-]\=[0-9.]'
+                    let plain=0
+                endif
+            " После двоеточия не должен идти пробельный символ
+            elseif char==#":"
+                if !s:F.comm.isnsplainsafechar(matchstr(a:scalar, '.', i+lchar))
+                    let plain=0
+                endif
+            " Также запретим пробельные символы, за которыми не следуют 
+            " непробельные
+            elseif !s:F.comm.isnsplainsafechar(char) &&
+                        \!(char=~#'^['.s:g.yaml.whitespace.']$' &&
+                        \  s:F.comm.isnsplainsafechar(
+                        \       matchstr(a:scalar,
+                        \           '^['.s:g.yaml.whitespace.']*\zs.',
+                        \           i+lchar)))
+                let plain=0
+            endif
+        endif
+        "{{{5 Незакавыченные скаляры: простой скаляр и два блочных
+        if plain || literal || folded
+            " Если есть последовательность, похожая на комментарий, уберём 
+            " незакавыченные скаляры
+            if char==#"#"
+                if prevchar=~#'^['.s:g.yaml.wslbr.']$'
+                    let plain=0
+                    let literal=0
+                    let folded=0
+                endif
+            " На всякий случай запретим CR: его могут посчитать новой строкой
+            elseif char==#"\r"
+                let plain=0
+                let literal=0
+                let folded=0
+            endif
+        endif
+        "{{{5 'scalar'
+        if single
+            " Запрещаем символы новой строки: мне неохота возиться с line 
+            " folding для этого стиля
+            if char=~#'^['.s:g.yaml.linebreak.']$'
+                let single=0
+            " Подсчитываем символы «"», «\» и «'»: на основе их количества будет 
+            " делаться выбор между 'scalar' и "scalar"
+            elseif char==#'"' || char==#'\'
+                let numbsdq+=1
+            elseif char==#''''
+                let numsquote+=1
+            endif
+        endif
+        "{{{5 Обрабатываем конец строки
+        if char!=#"\n"
+            let linelen+=1
+        else
+            if linelen>maxlinelen
+                let maxlinelen=linelen
+            endif
+            let linelen=0
+        endif
+        "{{{5 Обрабатываем конец слова
+        if !(char==#' ' || char==#"\n")
+            let wordlen+=1
+        else
+            if wordlen>maxwordlen
+                let maxwordlen=wordlen
+            endif
+            let wordlen=0
+        endif
+        "{{{5 Завершение цикла
+        let prevchar=char
+        let i+=len(char)
+    endwhile
+    "{{{4 Проверяем длину последей строки и последнего слова
+    if linelen>maxlinelen
+        let maxlinelen=linelen
+    endif
+    if wordlen>maxwordlen
+        let maxwordlen=wordlen
+    endif
+    "{{{4 Выбираем стиль на основе собранных данных
+    if slen>=80 && literal && maxlinelen<=80 && maxlinelen>=20
+        return 'literal'
+    elseif slen>=80 && folded && maxwordlen<=80 && maxlinelen>=20
+        return 'folded'
+    elseif plain && match(a:scalar, '['.s:g.yaml.whitespace.']$')==-1
+        return 'plain'
+    elseif single && numbsdq>=numsquote
+        return 'single'
+    elseif double
+        return 'double'
+    endif
+    return 'binary'
+endfunction
+"{{{3 dump.str
+let s:F.dump.str={}
+"{{{4 dump.str.literal
+function s:F.dump.str.literal(obj, r, dumped, opts, iskey)
+    let indent=matchstr(a:r[-1], '^ *')."  "
+    let chomp='+'
+    if a:obj!~#'\n$'
+        let chomp='-'
+    endif
+    let iindent=""
+    if a:obj=~#'^['.s:g.yaml.whitespace.']'
+        let iindent='2'
+    endif
+    let a:r[-1].=' |'.chomp.iindent
+    let lines=split(a:obj, "\n", 1)
+    let last=0
+    while empty(lines[-1])
+        call remove(lines, -1)
+        let last+=1
+    endwhile
+    call extend(a:r, map(lines, '((empty(v:val))?(""):("'.indent.'")).v:val'))
+    call extend(a:r, repeat([""], last-1))
+    return a:r
+endfunction
+"{{{4 dump.str.folded
+function s:F.dump.str.folded(obj, r, dumped, opts, iskey)
+    let indent=matchstr(a:r[-1], '^ *')."  "
+    let chomp='+'
+    if a:obj!~#'\n$'
+        let chomp='-'
+    endif
+    let iindent=""
+    if a:obj=~#'^['.s:g.yaml.whitespace.']'
+        let iindent='2'
+    endif
+    let a:r[-1].=' >'.chomp.iindent
+    let lines=split(a:obj, "\n", 1)
+    let last=0
+    while empty(lines[-1])
+        call remove(lines, -1)
+        let last+=1
+    endwhile
+    for line in lines
+        let llen=len(line)
+        if llen>80
+            let words=split(line, " ", 1)
+            let line=""
+            let llen=0
+            let prevempty=0
+            for word in words
+                let wlen=len(word)
+                let llen+=wlen
+                if llen>80 && wlen && word[0]!=#"\t"
+                    call add(a:r, indent.line)
+                    let line=word
+                    let llen=wlen
+                else
+                    let line.=((empty(line))?(""):(" ")).word
+                    let llen+=!empty(line)
+                endif
+            endfor
+            call add(a:r, indent.line)
+        else
+            call add(a:r, indent.line)
+        endif
+        call add(a:r, "")
+    endfor
+    call remove(a:r, -1)
+    call extend(a:r, repeat([""], last-1))
+    return a:r
+endfunction
+"{{{4 dump.str.plain
+function s:F.dump.str.plain(obj, r, dumped, opts, iskey)
+    let a:r[-1].=((a:iskey)?(""):(" ")).a:obj
+    return a:r
+endfunction
+"{{{4 dump.str.single
+function s:F.dump.str.single(obj, r, dumped, opts, iskey)
+    let a:r[-1].=((a:iskey)?(""):(" ")).string(a:obj)
+    return a:r
+endfunction
+"{{{4 dump.str.double
+function s:F.dump.str.double(obj, r, dumped, opts, iskey)
+    "{{{5 Объявление переменных
+    let a:r[-1].=((a:iskey)?(""):(" ")).'"'
+    let indent=substitute(a:r[-1], '.', ' ', 'g')
+    let idx=0
+    let slen=len(a:obj)
+    let curword=""
+    let wordlen=0
+    let linelen=0
+    let prevspace=0
+    "{{{5 Представление
+    while idx<slen
+        " Так мы получим следующий символ без диакритики (а на следующей 
+        " итерации получим диакритику без символа).
+        let chnr=char2nr(a:obj[(idx):])
+        let char=nr2char(chnr)
+        let clen=len(char)
+        let chkchar=a:obj[(idx):(idx+clen-1)]
+        let idx+=clen
+        if has_key(s:g.dump.escrev, char)
+            " Экранирование
+            let curword.=s:g.dump.escrev[char]
+            let wordlen+=2
+        elseif s:F.comm.isprintnr(chnr) && !(chnr==0x2029 || chnr==0x2028)
+            let curword.=char
+            let wordlen+=1
+        else
+            if chnr<0x100
+                let curword.=printf('\x%0.2x', chnr)
+                let wordlen+=4
+            elseif chnr<0x10000
+                let curword.=printf('\u%0.4x', chnr)
+                let wordlen+=6
+            elseif chnr<0x100000000
+                let curword.=printf('\U%0.8x', chnr)
+                let wordlen+=10
+            else
+                let curword.=char
+                let wordlen+=1
+            endif
+        endif
+    endwhile
+    let a:r[-1].=curword
+    let a:r[-1].='"'
+    "}}}5
+    return a:r
+endfunction
+"{{{4 dump.str.binary
+function s:F.dump.str.binary(obj, r, dumped, opts, iskey)
+    let selfname='dump.str.binary'
+    if a:r[-1]=~#'!\S*$'
+        if a:r[-1]=~#'!!LockedString$'
+            let a:r[-1]=substitute(a:r[-1], '!!Locked\zsString$', 'binary', '')
+        elseif a:r[-1]=~#'!!\S*$'
+            let a:r[-1]=substitute(a:r[-1], '!!\zs\ze\S*$', 'Binary/', '')
+        else
+            call s:F.main.eerror(selfname, 'notimp', ["btdump"])
+        endif
+    else
+        let a:r[-1].=((a:iskey)?(""):(" "))."!!binary"
+    endif
+    let a:r[-1].=" ".s:F.plug.stuf.base64encode(a:obj)
+    return a:r
+endfunction
 "{{{3 dump.dumpstr
 "{{{4 s:g.dump
-let s:g.dump.disallowedstart=
-            \(s:g.yaml.wslbr).
-            \(s:g.yaml.flowindicator).
-            \(s:g.yaml.comment).
-            \'"''!&*\-|?>%@'
-let s:g.dump.disallowedp=
-            \(s:g.yaml.flowindicator).
-            \(s:g.yaml.linebreak).
-            \(s:g.yaml.comment)
-let s:g.dump.disallowedend=
-            \(s:g.yaml.wslbr).
-            \(s:g.yaml.flowindicator)
-let s:g.dump.jyspecials=["null",  "Null",  "NULL",
-            \            "false", "False", "FALSE",
-            \            "true",  "True",  "TRUE",
-            \            '~', '=', '<<']
 let s:g.dump.escrev={
             \"\n": '\n',
             \"\\": '\\',
@@ -3830,83 +4262,10 @@ let s:g.dump.escrev={
             " \"\t": '\t',
 "}}}4
 function s:F.dump.dumpstr(obj, r, dumped, opts, ...)
-    "{{{4 Представление строки без ""
-    let spstr=(a:obj=~#'^[0-9]' || index(s:g.dump.jyspecials, a:obj)!=-1)
-    if !get(a:opts, "all_flow", 0) &&
-                \a:obj=~#'^['.s:g.dump.disallowedstart.']\@!'.
-                \'\%([:\-?]['.s:g.yaml.whitespace.']\)\@!'.
-                \'\%(['.s:g.dump.disallowedp.']\@!'.
-                \   '\%([:\-?]['.s:g.yaml.whitespace.']\)\@!'.
-                \   s:g.yaml.printchar.'\)\+'.
-                \'['.s:g.dump.disallowedend.']\@<!$' &&
-                \(empty(a:000) || !spstr)
-        if spstr
-            let a:r[-1].=" !!str"
-        endif
-        let a:r[-1].=" ".a:obj
-    "{{{4 Представление остальных строк
-    else
-        "{{{5 Объявление переменных
-        let a:r[-1].=' "'
-        let idx=0
-        let slen=len(a:obj)
-        "{{{5 Представление
-        while idx<slen
-            " Так мы получим следующий символ без диакритики (а на следующей 
-            " итерации получим диакритику без символа).
-            let chnr=char2nr(a:obj[(idx):])
-            let char=nr2char(chnr)
-            let clen=len(char)
-            let chkchar=a:obj[(idx):(idx+clen-1)]
-            let idx+=clen
-            if has_key(s:g.dump.escrev, char)
-                " Экранирование
-                let a:r[-1].=s:g.dump.escrev[char]
-            elseif chkchar!=#char || (clen==1 && char!~#s:g.yaml.printchar)
-                if chkchar!=#char
-                    call s:F.main.eerror(selfname, "notimp", 1,
-                                \        ["diutf", i, strtrans(chkchar)])
-                    let schnr=chnr
-                    let clen=0
-                    while schnr!=0
-                        let schnr=schnr/0x100
-                        let clen+=1
-                    endwhile
-                endif
-                let i=0
-                while i<clen
-                    let a:r[-1].=printf('\x%0.2x', char2nr(chkchar[i]))
-                    let i+=1
-                endwhile
-            elseif char=~#'^'.s:g.yaml.printchar.'$'
-                let a:r[-1].=char
-            elseif clen>1
-                " На случай, если char2nr вернёт число, большее, чем 0xFFFF.
-                if chnr<0x10000
-                    let a:r[-1].=printf('\u%0.4x', chnr)
-                " Следующий код производит корректный JSON, однако 
-                " преобразование его обратно в Vim происходит некорректно (код 
-                " производит суррогатную пару utf-16, обозначающую один символ, 
-                " но результатом обратного преобразования является пара 
-                " символов, не соответствующая стандарту UTF-8).
-                elseif chnr<=0x10FFFF
-                    let U=chnr-0x10000
-                    let Uh=U/1024
-                    let W1=0xD800+Uh
-                    let W2=0xDC00+(U-(Uh*1024))
-                    let a:r[-1].=printf('\u%0.4x\u%0.4x', W1, W2)
-                else
-                    let a:r[-1].=char
-                endif
-            else
-                let a:r[-1].=char
-            endif
-        endwhile
-        let a:r[-1].='"'
-        "}}}5
-    endif
-    "}}}4
-    return a:r
+    let selfname='dump.dumpstr'
+    let iskey=!empty(a:000)
+    let style=s:F.dump.choose_scalar_style(a:obj, a:opts, iskey)
+    return s:F.dump.str[style](a:obj, a:r, a:dumped, a:opts, iskey)
 endfunction
 "{{{3 dump.dumpfun
 function s:F.dump.dumpfun(obj, r, dumped, opts)
@@ -3976,7 +4335,7 @@ function s:F.dump.dumpdct(obj, r, dumped, opts)
             call add(a:r, indent.'  ')
         endif
         if islocked('a:obj[key]') && get(a:opts, "preserve_locks", 0)
-            let a:r[-1].='!!vim/Locked'
+            let a:r[-1].='!!vim/Locked '
         endif
         call s:F.dump.dump(key, a:r, a:dumped, a:opts, -1, 0)
         let a:r[-1].=":"
@@ -4000,6 +4359,7 @@ endfunction
 "{{{3 dump.dump
 function s:F.dump.dump(obj, r, dumped, opts, islocked, ...)
     let anchor=s:F.dump.findobj(a:obj, a:r, a:dumped, a:opts)
+    let iskey=!empty(a:000)
     if anchor!=#""
         if get(a:opts, 'preserve_locks', 0) && a:r[-1]=~#' !!vim/LockedItem/$'
             let a:r[-1]=substitute(a:r[-1], ' !!vim/LockedItem/$',
@@ -4030,18 +4390,19 @@ function s:F.dump.dump(obj, r, dumped, opts, islocked, ...)
             if get(a:opts, 'preserve_locks', 0)
                 let tobj=type(l:Obj)
                 if tobj==type([]) || tobj==type({})
-                    let a:r[-1].=' !!vim/'.((islocked('l:Obj'))?("Locked"):("")).
+                    let a:r[-1].=' !!vim/'.((islocked('l:Obj'))?
+                                \               ("Locked"):
+                                \               ("")).
                                 \s:g.dump.typenames[tobj]
                 endif
             endif
         else
-            let a:r[-1].=((empty(a:000))?(" "):("")).tag
+            let a:r[-1].=((iskey)?(" "):("")).tag.
+                        \((iskey)?(""):(" "))
         endif
     endif
     call call(s:g.dump.types[type(l:Obj)],
-                \[l:Obj, a:r, a:dumped, a:opts]+((type(l:Obj)==type(""))?
-                \                                   ([0]):
-                \                                   ([])),
+                \[l:Obj, a:r, a:dumped, a:opts]+a:000,
                 \{})
     return a:r
 endfunction
@@ -4058,6 +4419,8 @@ function s:F.dump.dumps(obj, join, opts)
     call s:F.dump.dump(a:obj, r, {}, a:opts, 0)
     if get(a:opts, 'all_flow', 0)
         call filter(r, 'v:val[-1:]!=#" "')
+    else
+        call add(r, '...')
     endif
     return a:join ? join(r, "\n") : r
 endfunction

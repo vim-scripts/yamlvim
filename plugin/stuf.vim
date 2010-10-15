@@ -18,8 +18,6 @@ elseif !exists("s:g.pluginloaded")
                 \ "num": {},
                 \ "dct": {},
                 \"main": {},
-                \ "mng": {},
-                \"comp": {},
             \}
     lockvar 1 s:F
     "{{{3 Глобальная переменная
@@ -34,8 +32,10 @@ elseif !exists("s:g.pluginloaded")
     "{{{4 s:g.cmd
     let s:g.cmd={}
     let s:g.cmd.inputs={}
+    let s:g.cmd.oldhist={}
     "{{{4 Функции
     let s:g.c={}
+    let s:g.c.inameregex='^[a-z][a-z_]*$'
     let s:g.c.sid=["nums", [1]]
     " XXX cinput - 18
     let s:g.c.functions=[
@@ -55,6 +55,10 @@ elseif !exists("s:g.pluginloaded")
                 \       {   "model": "optional",
                 \        "required": [["type", type("")]],
                 \        "optional": [[["bool", ""], {}, 0]]}],
+                \["base64encode",   "str.base64encode",
+                \       {   "model": "simple",
+                \        "required": [["or", [["type", type("")],
+                \                             ["alllst", ["type",type(0)]]]]]}],
                 \["regescape",   "str.escapefor.regex",
                 \       {   "model": "simple",
                 \        "required": [["type", type("")]]}],
@@ -89,15 +93,12 @@ elseif !exists("s:g.pluginloaded")
                 \                     ["alllst", ["alllst", ["type", type("")]]]
                 \                    ]}],
                 \["string",      "str.string", {}],
-                \["iswriteable", "file.checkwr",
-                \       {   "model": "simple",
-                \        "required": [["type", type("")]]}],
                 \["readfile",    "file.readfile",
                 \       {   "model": "simple",
                 \        "required": [["file", "r"]]}],
                 \["cinput", "cmd.geninput",
                 \       {   "model": "optional",
-                \        "required": [["and", [["regex", '^[a-z][a-z_]*$'],
+                \        "required": [["and", [["regex", s:g.c.inameregex],
                 \                              ["not",
                 \                               ["keyof", s:g.cmd.inputs]]]]],
                 \        "optional": [[["type", type("")], {}, ""],
@@ -116,15 +117,6 @@ elseif !exists("s:g.pluginloaded")
                 \                               '^custom,\([sS]:\)\@!']]],
                 \                      {}, ""]]}],
             \]
-    "{{{4 Команды
-    let s:g.load.commands={
-                \"E": {
-                \       "bang": '',
-                \      "nargs": '+',
-                \       "func": "mng.main",
-                \   "complete": "customlist,s:_completeE",
-                \},
-            \}
     "{{{4 sid
     function s:SID()
         return matchstr(expand('<sfile>'), '\d\+\ze_SID$')
@@ -136,16 +128,12 @@ elseif !exists("s:g.pluginloaded")
     let s:g.reginfo=s:F.plug.load.registerplugin({
                 \     "funcdict": s:F,
                 \     "globdict": s:g,
-                \     "commands": s:g.load.commands,
-                \      "cprefix": "S",
                 \      "oprefix": "stuf",
                 \          "sid": s:g.scriptid,
                 \   "scriptfile": s:g.load.scriptfile,
                 \"dictfunctions": s:g.c.functions,
-                \   "apiversion": "0.4",
-                \     "requires": [["load", '0.0'],
-                \                  ["chk",  '0.3'],
-                \                  ["comp", '0.2']],
+                \   "apiversion": "0.5",
+                \     "requires": [["load", '0.0']],
             \})
     let s:F.main.eerror=s:g.reginfo.functions.eerror
     "}}}2
@@ -163,9 +151,6 @@ let s:g.p={
         \}
 call add(s:g.c.functions[18][2].required[0][1][1], s:g.p.emsg.iexists)
 "{{{1 Вторая загрузка — функции
-"{{{2 plug
-let s:F.plug.comp=s:F.plug.load.lazygetfunctions("comp")
-let s:F.plug.chk =s:F.plug.load.getfunctions("chk")
 "{{{2 stuf
 "{{{3 stuf.writevar: записать в переменную
 ", возможно, являющуюся частью несуществующего словаря, или имеющую другой тип 
@@ -363,6 +348,50 @@ function s:F.str.base64decode(str, bytearray)
     endwhile
     return r
 endfunction
+"{{{3 str.base64encode
+let s:g.str.eqsigncode=char2nr('=')
+let s:g.str.cb64=map(split("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+            \              '\zs'), 'char2nr(v:val)')
+function s:F.str.base64encode(str)
+    let r=""
+    let bytearray=(type(a:str)==type([]))
+    let in=repeat([0], 3)
+    let idx=0
+    let slen=len(a:str)
+    let cb64=s:g.str.cb64
+    while idx<slen
+        let len=0
+        let i=0
+        while i<3
+            if idx<slen
+                let cur=a:str[idx]
+                if !bytearray
+                    let cur=char2nr(cur)
+                endif
+                let in[i]=cur
+                let len+=1
+                let idx+=1
+            else
+                let in[i]=0
+            endif
+            let i+=1
+        endwhile
+        if len
+            let out=[    cb64[in[0]/4],
+                        \cb64[s:F.num.or(((s:F.num.and(in[0], 0x03))*16),
+                        \                ((s:F.num.and(in[1], 0xF0))/16))],
+                        \((len>1)?
+                        \   (cb64[s:F.num.or(s:F.num.and(in[1], 0x0F)*4,
+                        \                    s:F.num.and(in[2], 0xC0)/64)]):
+                        \   (s:g.str.eqsigncode)),
+                        \((len>2)?
+                        \   (cb64[s:F.num.and(in[2], 0x3F)]):
+                        \   (s:g.str.eqsigncode))]
+            let r.=join(map(copy(out), 'eval(printf(''"\x%02x"'', v:val))'), "")
+        endif
+    endwhile
+    return r
+endfunction
 "{{{2 num
 "{{{3 num.and
 function s:F.num.and(v1, v2)
@@ -395,12 +424,6 @@ function s:F.num.or(v1, v2)
     return r
 endfunction
 "{{{2 file
-"{{{3 file.checkwr
-function s:F.file.checkwr(fname)
-    let fwr=filewritable(a:fname)
-    return (fwr==1 || (fwr!=2 && !filereadable(a:fname) &&
-                \filewritable(fnamemodify(a:fname, ":p:h"))==2))
-endfunction
 "{{{3 file.readfile: прочитать файл
 " vim-7.0 не имеет функции shellescape
 if executable("cat") && exists('*shellescape')
@@ -460,7 +483,9 @@ endfunction
 function s:F.cmd.savehist()
     if &viminfo=~'!'
         for [key, value] in items(s:g.cmd.inputs)
-            let g:STUF_HISTORY_{toupper(key)}=join(value.history, "\n")
+            if !exists('g:STUF_HISTORY_'.toupper(key))
+                let g:STUF_HISTORY_{toupper(key)}=join(value.history, "\n")
+            endif
         endfor
     endif
 endfunction
@@ -527,8 +552,13 @@ function s:F.cmd.geninput(name, prompt, Completion)
                 \"history": [],
                 \"inputhistory": [],
             \}
-    if exists('g:STUF_HISTORY_'.toupper(a:name))
+    if has_key(s:g.cmd.oldhist, a:name)
+        call extend(entry.history, s:g.cmd.oldhist[a:name])
+        unlet s:g.cmd.oldhist[a:name]
+    elseif exists('g:STUF_HISTORY_'.toupper(a:name)) &&
+                \type(g:STUF_HISTORY_{toupper(a:name)})==type("")
         call extend(entry.history, split(g:STUF_HISTORY_{toupper(a:name)},"\n"))
+        unlet g:STUF_HISTORY_{toupper(a:name)}
     endif
     let s:g.cmd.inputs[a:name]=entry
     if type(a:Completion)==2
@@ -560,106 +590,47 @@ function s:F.cmd.delinput(name)
     unlet s:g.cmd.inputs[a:name]
     return 1
 endfunction
-"{{{2 main: destruct
+"{{{2 main: destruct, session
 "{{{3 main.destruct: выгрузить плагин
 function s:F.main.destruct()
-    if has_key(s:F.plug.comp, "delcomp")
-        call s:F.plug.comp.delcomp(s:g.comp._cnameE)
-    endif
+    augroup StufStoreHistory
+        autocmd!
+    augroup END
     unlet s:g
     unlet s:F
     return 1
 endfunction
-"{{{2 mng: main
-"{{{3 mng.main
-function s:F.mng.main(bang, ...)
-    let options=filter(copy(a:000), 'v:val[0:1]==#"++"')
-    let files=filter(copy(a:000), 'v:val[0:1]!=#"++"')
-    let nfiles=[]
-    for file in files
-        execute "e".a:bang." ".join(options)." ".join(map(files, 'fnameescape(v:val)'))
-    endfor
-endfunction
-"{{{2 comp: _completeE
-"{{{3 comp._completeE
-"{{{4 s:g.comp
-let s:g.comp={}
-let s:g.comp.ppopt=["ff", "fileformat", "enc", "encoding", "bin", "binary",
-            \       "nobin", "nobinary", "bad", "edit"]
-let s:g.comp.fileformats=['dos', 'unix', 'mac']
-let s:g.comp.encodings=['latin1', 'koi8-r', 'koi8-u', 'macroman',
-            \'cp437', 'cp737', 'cp775', 'cp850', 'cp852', 'cp855', 'cp857',
-            \'cp860', 'cp861', 'cp862', 'cp863', 'cp865', 'cp866', 'cp869',
-            \'cp874', 'cp1250', 'cp1251', 'cp1253', 'cp1254', 'cp1255',
-            \'cp1256', 'cp1257', 'cp1258']
-call extend(s:g.comp.encodings, map(range(2, 15), "'iso-8859-'.v:val"))
-call extend(s:g.comp.encodings, map(copy(s:g.comp.encodings), "'8bit-'.v:val"))
-let s:g.comp.dbencodings=['cp932', 'euc-jp', 'sjis', 'cp949',
-            \'euc-kr', 'cp936', 'euc-cn', 'cp950', 'big5', 'euc-tw',
-            \'japan', 'korea', 'prc', 'chinese', 'taiwan']
-call extend(s:g.comp.encodings, s:g.comp.dbencodings)
-call extend(s:g.comp.encodings, map(copy(s:g.comp.dbencodings),
-            \'"2byte-".v:val'))
-call extend(s:g.comp.encodings, ['utf-8', 'ucs-2', 'ucs-2le', 'utf-16',
-            \'utf-16le', 'ucs-4', 'ucs-4le', 'utf8', 'unicode', 'uncs2be',
-            \'ucs-2be', 'ucs-4be', 'utf-32', 'utf-32le', 'default'])
-let s:g.comp._cnameE="stuf/E"
-let s:g.comp.toarglead=[
-            \'v:val=~#"^".es',
-            \'v:val=~?"^".es',
-            \'v:val=~#es',
-            \'v:val=~?es',
-        \]
-"}}}4
-function s:F.comp._completeEopt(arglead)
-    let start=a:arglead
-    if start[0:1]==#'++'
-        let start=start[2:]
-        if start!~#'='
-            return map(copy(s:g.comp.ppopt), '"++".v:val')
-        else
-            let end=matchstr(start, '=\@<=.*$')
-            let s=matchstr(start, '^.\{-}=\@=')
-            let es=s:F.str.escapefor.regex(s)
-            if start=~#'^\%(ff\|fileformat\)='
-                return map(copy(s:g.comp.fileformats), '"++".s."=".v:val')
-            elseif start=~#'^\%(enc\|encoding\)='
-                return map(copy(s:g.comp.encodings), '"++".s."=".v:val')
-            else
-                let starts=[]
-                for expr in s:g.comp.toarglead
-                    let starts=filter(copy(s:g.comp.ppopt), expr)
-                    if !empty(starts)
-                        break
-                    endif
-                endfor
-                let r=[]
-                for start in starts
-                    let r+=s:F.comp._completeEopt("++".start."=".end)
-                endfor
-                return r
-            endif
+"{{{3 main.session: Сохранить сессию
+function s:F.main.session(...)
+    if empty(a:000)
+        let r={'inputhistory': {}}
+        for [key, value] in items(s:g.cmd.inputs)
+            let r.inputhistory[key]=value.history
+        endfor
+        return r
+    else
+        let s=a:000[0]
+        if type(s)==type({}) && has_key(s, 'inputhistory')
+            for [key, l:Value] in items(s.inputhistory)
+                if type(l:Value)!=type([]) || key!~#s:g.c.inameregex
+                    unlet l:Value
+                    continue
+                endif
+                call filter(l:Value, 'type(v:val)=='.type(""))
+                if has_key(s:g.cmd.inputs, key)
+                    let s:g.cmd.inputs[key]=copy(l:Value)
+                else
+                    let s:g.cmd.oldhist[key]=copy(l:Value)
+                endif
+                unlet l:Value
+            endfor
         endif
     endif
-    return []
-endfunction
-let s:g.comp.Emodel=
-            \{"model": "words",
-            \ "words": ["first", [["func", s:F.comp._completeEopt],
-            \                     ["file", ""]]]}
-function s:F.comp._completeE(...)
-    if !has_key(s:F.comp, "__completeE")
-        unlockvar! s:F.comp
-        let s:F.comp.__completeE=
-                    \s:F.plug.load.run(s:F.plug.comp, "ccomp",
-                    \                  s:g.comp._cnameE, s:g.comp.Emodel)
-        lockvar! s:F.comp
-    endif
-    return call(s:F.comp.__completeE, a:000, {})
 endfunction
 "{{{1
 lockvar! s:g
 unlockvar! s:g.cmd.inputs
+unlockvar! s:g.cmd.oldhist
 lockvar! s:F
 " vim: ft=vim:ts=8:fdm=marker:fenc=utf-8
 
