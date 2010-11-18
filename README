@@ -2,4 +2,9 @@ This is a mirror of http://www.vim.org/scripts/script.php?script_id=3190
 
 This is the library that is able to represent arbitrary Vim data in YAML 1.2. It also provides a parser that is python YAML parser pyyaml rewritten in pure vimscript.
 
-Documentation: http://kp-pav.narod2.ru/vim/doc/yaml.txt.html
+Documentation: http://vimpluginloader.sourceforge.net/doc/yaml.txt.html
+Project page: http://sourceforge.net/projects/yamlvim
+Dependencies (you do not need to install them by yourself, see installation details):
+vimscript #3184, http://sourceforge.net/projects/vimpluginloader
+vimscript #3186, http://sourceforge.net/projects/vimstuff
+vimscript #3189, http://sourceforge.net/projects/vimoop
