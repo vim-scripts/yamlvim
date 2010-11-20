@@ -40,7 +40,7 @@ All listed variables are locked (see |:lockvar|). You should not modify them.
 os#OS                                                                  *os#OS*
     Contains information about operating system on which vim is run. Is either 
     "unknown", or one of "unix", "win16", "win32", "win64", "win32unix", 
-    "win95", "mac", "macunix".
+    "win95", "mac", "macunix", "amiga", "os2", "qnx", "beos", "vms".
 os#pathSeparator                                            *os#pathSeparator*
     Contains current path separator.
 

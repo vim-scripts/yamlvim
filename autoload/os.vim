@@ -6,7 +6,7 @@ let s:loaded_plugin=1
 "{{{1 Os :: os
 let os#OS="unknown"
 for s:os in ["unix", "win16", "win32", "win64", "win32unix", "win95",
-            \"mac", "macunix"]
+            \"mac", "macunix", "amiga", "os2", "qnx", "beos", "vms"]
     if has(s:os)
         let os#OS=s:os
         break
