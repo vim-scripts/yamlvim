@@ -73,9 +73,11 @@ options in g:loadOptions dictionary (Note that it is a very bad idea).
                     return 1
 :LoadCommand reload {plugin}                            *load-action-reload*
             Reload plugin named {plugin}. Just like |load-action-unload|, but 
-            after unloading |load-reg-file|s are sourced. Note that reloading 
-            some widely used plugins like vimargumentchec (chk) or even this 
-            (load) plugin itself may render other plugins useless.
+            after unloading |load-reg-file|s are sourced.
+:LoadCommand sesreload {plugin}                      *load-action-sesreload*
+            Reload plugin named {plugin}. Just like |load-action-reload|, but 
+            before unloading plugins session information is saved and after 
+            loading plugins it is restored.
 :LoadCommand show                                         *load-action-show*
             Show |load-reg-scriptid|, |load-reg-name|, |load-reg-file| and 
             status for all plugins. Possible statuses: registered and loaded. 
@@ -86,6 +88,12 @@ options in g:loadOptions dictionary (Note that it is a very bad idea).
 :LoadCommand nrof {fname}                                 *load-action-nrof*
             Display a number of function {fname}. {fname} must have the 
             following structure: /{plugname}/{pathToFunction}.
+:LoadCommand function {fname}                         *load-action-function*
+            Display a code of function {fname}, just like builtin |:function|. 
+            {fname} argument is described in |load-action-nrof|.
+:LoadCommand breakadd {fname}[ {line}]                *load-action-breakadd*
+            Set a breakpoint at line {line} (default 1) of a function {fname}. 
+            {fname} argument is described in |load-action-nrof|.
 :LoadCommand autocmd {event} {plugin} {command}        *load-action-autocmd*
             Create an `autocommand', see |load-autocommands|. For 
             a description of arguments see |load-func-autocmd|. Note that you 
@@ -233,6 +241,40 @@ load#CreateDictFunction({arguments}, {body})     *load#CreateDictFunction()*
         variables. For example, to create an |eval()| function that does not 
         have access to script variables you should do the following call: >
             let s:F.safeeval=load#CreateDictFunction("s", "return eval(a:s)")
+<                                                             *load#Setup()*
+load#Setup({apiversion}[, {oprefix}[, {cprefix}[, {fprefix}[, {oneload}]]]])
+        Does some common plugin setup actions:
+        1. Creates s:F, s:F.plug and s:F.main dictionaries, populates 
+           s:F.plug.load with load plugin functions.
+        2. Creates s:g and s:g._load dictionaries, sets s:g._pluginloaded to 
+           {oneload} (or 0), populates _load dictionary with the following 
+           keys:
+           Key         Description ~
+           funcdict    See |load-reg-funcdict|
+           globdict    See |load-reg-globdict|
+           sid         See |load-reg-sid|
+           scriptfile  See |load-reg-scriptfile|
+           apiversion  {apiversion}, see |load-reg-apiversion|
+           oprefix     If {oprefix} is defined and is a string, then 
+                       {oprefix}, otherwise root (|%:r|) of the filename with 
+                       invalid characters removed. See |load-reg-oprefix|.
+           cprefix     If {cprefix} is defined and is a string, then 
+                       {cprefix}. If {cprefix} is 1 then `oprefix' with first 
+                       letter capitalized, if it is not defined or is 0 then 
+                       `cprefix' is not defined at all.
+                       See |load-reg-cprefix|.
+           fprefix     Just like `cprefix', but using {fprefix} value.
+                       See |load-reg-fprefix|.
+           oneload     {oneload} or 0. See |load-reg-oneload|.
+        Example usage: >
+            if (exists("s:g._pluginloaded") && s:g._pluginloaded) ||
+                        \exists("g:fooOptions.DoNotLoad")
+                finish
+            elseif !exists("s:g._pluginloaded")
+                execute load#Setup('0.1', 1, 0, 1)
+                let s:g._load.functions=[["bar", "baz.bar", {}]]
+                let s:g.reginfo=s:F.plug.load.register(s:g._load)
+            endif
 
 -----------------------------------------------------------------------------
 2.3. `Autocommands'                                      *load-autocommands*
