@@ -1,63 +1,77 @@
 *oop.txt*  Basic Python-like OOP support
 ==============================================================================
-CONTENTS                                                      *oop-contents*
+CONTENTS                                                        *oop-contents*
 
     1. Intro                                      |oop-intro|
     2. Functionality provided                     |oop-functionality|
-        2.1. Functions                            |oop-functions|
-        2.2. Built-in classes                     |oop-classes|
+        2.1. Features                             |oop-features|
+        2.2. Resources                            |oop-resources|
+        2.3. Built-in classes                     |oop-classes|
     3. Class members                              |oop-classinstance|
 
 ==============================================================================
-1. Intro                                                         *oop-intro*
+1. Intro                                                           *oop-intro*
 
 This plugin provides some basic OOP support with OOP model similar to Python.
 
-Plugin requires vimpluginloader and its dependencies.
+Plugin requires frawor.
 
 ==============================================================================
-2. Functionality provided                                *oop-functionality*
-
-This plugin provides three functions. Functions are accessed via dictionary 
-returned by |load-func-getfunctions| function.
+2. Functionality provided                                  *oop-functionality*
 
 ------------------------------------------------------------------------------
-2.1. Functions                                               *oop-functions*
+2.1. Features                                                   *oop-features*
+                                                                 *oop-f-pyoop*
 
-All following functions are accessed via dictionary returned by 
-|load-func-getfunctions| function.
+                                                           *oop-f-pyoop.class*
+pyoop.class : function (name, functions[, vars[, parents]])
+            + unload
+        Defines a new class with given name, class functions (dictionary 
+        {{fname}: {fref}}) and class variables (dictionary) (see 
+        |oop-__variables__| for how they then can be accessed). List {parents} 
+        is used to inherit functions and variables, it must contain a number 
+        of class names. Function will fail if class with requested name was 
+        already defined in this plugin or in one of its dependencies.
 
-                                                    *oop-func-registerclass*
-registerclass({name}[, {functions}[, {variables}[, {parents}]]])
-        Register a new class with given {name}, list of {functions} and list 
-        of {variables} which will inherit from {parents}. Here {functions} 
-        argument is a dictionary; all non-funcref arguments are filtered out. 
-        List of {variables} is also a dictionary, but nothing is filtered out. 
-        {parents} must be a list of class names, all classes should be defined 
-        before defining {name} class. This function returns a function 
-        reference which is the only way to delete a class with given name. 
-        Note that registerclass function will not redefine existing class.
-getinstance({name}[, ...])                            *oop-func-getinstance*
-        Get the instance of a class {name}. All subsequenc arguments will be 
-        passed to class constructor (if any). See |oop-classinstance|.
+Feature `pyoop' additionally contains three functions: `register' which will 
+add _classes variable to s: dictionary (it is |frawor-fk-ignoredeps| feature), 
+`load' which will populate _classes dictionary with classes defined by 
+dependencies of the plugin and `unload' which will remove defined classes when 
+plugin is unloaded.
+
+                                                                     *oop-new*
+To get an instance for particular class Foo you should use >
+    let instance=s:_classes.Foo.new(arg1, arg2, ...)
+This will pass variables arg1, arg2, ... to constructor (see |oop-__init__|).
+
+Note that you must set |self| to class dictionary. In the above example it is 
+done by vim, if you want to use |call()| instead, use >
+    let instance=call(s:_classes.Foo.new, [arg1, ...], s:_classes.Foo)
 
 ------------------------------------------------------------------------------
-2.2. Built-in classes                                          *oop-classes*
+2.2. Resources                                                 *oop-resources*
+                                                                 *oop-r-pyoop*
 
-Exception                                              *oop-class-Exception*
+pyoop.instanceof :: name, instance -> Bool            *oop-r-pyoop.instanceof*
+        Returns true if {instance} is an instance of class {name}.
+
+------------------------------------------------------------------------------
+2.3. Built-in classes                                            *oop-classes*
+
+Exception                                                *oop-class-Exception*
         Basic class for custom exceptions. Functions:
 
-warn                                                    *oop-Exception.warn*
+warn                                                      *oop-Exception.warn*
         Generates error message using __str__ method and echoes it with 
         |hl-ErrorMsg| higlighting. Returns echoed error message. Note that 
         this warning will not be caught by |:try| ... |:catch| blocks.
-raise                                                  *oop-Exception.raise*
+raise                                                    *oop-Exception.raise*
         Invokes |oop-Exception.warn| and then throws generated error message.
-__str__                                              *oop-Exception.__str__*
+__str__                                                *oop-Exception.__str__*
         Returns basic error message. Should be redefined in child classes.
 
 ==============================================================================
-3. Class members                                         *oop-classinstance*
+3. Class members                                           *oop-classinstance*
 
 When you request new class instance the following steps are performed.
 1. New dictionary with keys __class__ and __variables__ is generated.
@@ -73,7 +87,7 @@ When you request new class instance the following steps are performed.
 All class members may have following special methods/variables:
 
 __class__                                                   *oop-__class__*
-        Defined for all instances, contains class name.
+        Defined for all instances, contains class dictionary.
 
 __variables__                                           *oop-__variables__*
         Defined for all instances, contains class variables. Unlike instance 
@@ -86,8 +100,6 @@ __init__({super}, ...)                                       *oop-__init__*
         If defined, this method will be called whenever new instances are 
         generated. {super} argument is a dictionary with either a parent 
         class methods (if there is only one parent) or with {{name}: 
-        {methods}} pairs. Other arguments are passed from 
-        |oop-func-getinstance|.
+        {methods}} pairs. Other arguments are passed from |oop-new|.
 
 vim: ft=help:tw=78
-

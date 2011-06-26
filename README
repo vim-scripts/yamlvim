@@ -5,6 +5,5 @@ This is the library that is able to represent arbitrary Vim data in YAML 1.2. It
 Documentation: http://vimpluginloader.sourceforge.net/doc/yaml.txt.html
 Project page: http://sourceforge.net/projects/yamlvim
 Dependencies (you do not need to install them by yourself, see installation details):
-vimscript #3184, http://sourceforge.net/projects/vimpluginloader
-vimscript #3186, http://sourceforge.net/projects/vimstuff
+vimscript #3631, https://bitbucket.org/ZyX_I/frawor
 vimscript #3189, http://sourceforge.net/projects/vimoop
