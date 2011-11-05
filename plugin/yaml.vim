@@ -369,9 +369,10 @@ let s:load.Scanner={
             \   'e':  "\x1B",
             \   ' ':  "\x20",
             \   '"':  '"',
+            \   '/':  '/',
             \   '\':  '\',
-            \   'N':  "\x85",
-            \   '_':  "\xA0",
+            \   'N':  "\u0085",
+            \   '_':  "\u00A0",
             \   'L':  "\u2028",
             \   'P':  "\u2029",
             \},
@@ -1797,7 +1798,7 @@ function s:F.load.Scanner.scan_flow_scalar_non_spaces(double, start_mark)
                 call self.scan_line_break()
                 call extend(chunks, self.scan_flow_scalar_breaks(a:double,
                             \                                    a:start_mark))
-            elseif ch==#'0'
+            elseif ch is# '0'
                 call self._warn(selfname, 'Scanner', 'strnull', a:start_mark,
                             \   self.get_mark())
             else

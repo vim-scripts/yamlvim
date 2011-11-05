@@ -1,6 +1,6 @@
 "▶1 Header
 scriptencoding utf-8
-execute frawor#Setup('0.1', {'@/fwc/compiler': '0.0',
+execute frawor#Setup('0.3', {'@/fwc/compiler': '0.0',
             \                '@/decorators'  : '0.0'}, 1)
 "▶1 Define messages
 if v:lang=~?'ru'

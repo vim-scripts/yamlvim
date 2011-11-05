@@ -23,7 +23,7 @@ else
                     let charnr=char2nr(char[0])
                     let curcol+=1+((0xFF00< charnr && charnr<=0xFF60) ||
                                 \  (0xFFE0<=charnr && charnr<=0xFFE6) ||
-                                \  charn==0x3000)
+                                \  charnr==0x3000)
                 else
                     let curcol+=len(strtrans(char))
                 endif

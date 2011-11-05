@@ -70,6 +70,7 @@ call extend(s:_messages, map({
             \     'isnot': 'expected %s, but got %s',
             \       'anf': '`%s'' is not a valid action',
             \       'pnf': '`%s'' is not a valid prefix',
+            \ 'noprefarg': 'missing %u prefix arguments',
             \ 'noreqpref': 'some required prefixes are missing',
         \}, '"Error while processing check %s for %s: ".v:val'))
 let s:_messages._types=['number', 'string', 'function reference', 'list',
@@ -479,17 +480,22 @@ function s:compiler.getmatchstr(ldstr, exptype, ldtmp)
                     \'(sort(keys('.a:ldtmp.'))))'
     endif
 endfunction
-"▶1 setmatches      :: &self(ldstr, exptype)
-function s:compiler.setmatches(ldstr, exptype)
+"▶1 setmatches      :: &self(ldstr, exptype, filter)
+function s:compiler.setmatches(ldstr, exptype, filter)
     if self.joinlists
-        call add(self.ldstrs, [a:ldstr, a:exptype])
+        call add(self.ldstrs, [a:ldstr, a:exptype, a:filter])
         return self
     else
         let vstr=self.vstrs[-1]
         call add(self.vstinf[vstr], ['let', a:ldstr])
         call filter(self.l, '!(v:val[0] is# "let" && v:val[1] is# vstr)')
-        return self.let(vstr, self.getmatcher(self.matcher, a:ldstr,
-                    \                         self.comparg, 1))
+        if a:filter
+            return self.let(vstr, self.getmatcher(self.matcher, a:ldstr,
+                        \                         self.comparg, 1))
+        else
+            return self.let(vstr, self.getmatchstr(a:ldstr, a:exptype,
+                        \                          self.getlvarid('curld')))
+        endif
     endif
 endfunction
 "▶1 newvstr         :: idx + self → varname + self
@@ -517,7 +523,7 @@ function s:compiler.addjoinedmtchs()
         let curldbase=self.getlvarid('curld').'_'
         let lststrs=map(remove(self.ldstrs, 0, -1),
                     \   'self.getmatchstr(v:val[0], v:val[1], curldbase.v:key)')
-        call self.setmatches(join(lststrs, '+'), type([]))
+        call self.setmatches(join(lststrs, '+'), type([]), 1)
     endif
     return self
 endfunction
@@ -553,13 +559,13 @@ function s:compiler.addthrow(msg, needcurarg, ...)
             call self.call('@%@.p._f.warn('.pargs.')')
         endif
         call self.call('@%@.F.warn('.args.')')
+    elseif msgstatus is# 'throwignore' || self.type is# 'complete'
+        " Ignore and fail
     elseif msgstatus is# 'throw'
         if exists('pargs')
             call self.call('add(@$@pmessages, ['.pargs.'])')
         endif
         call self.call('add(@$@messages, ['.args.'])')
-    elseif msgstatus is# 'throwignore'
-        " Ignore and fail
     endif
     return self.fail()
 endfunction
@@ -569,7 +575,7 @@ function s:compiler.nextthrow(cond, ...)
 endfunction
 "▶1 addsavemsgs     :: &self
 function s:compiler.addsavemsgs()
-    if self.msgs.statuses is# ['return']
+    if self.msgs.statuses[-1] is# 'return' || self.type is# 'complete'
         call add(self.msgs.savevars, [0, 0])
         return self
     else
@@ -585,6 +591,9 @@ function s:compiler.addrestmsgs(...)
     let [msglenstr, pmsglenstr]=self.msgs.savevars[-1]
     if !a:0
         call remove(self.msgs.savevars, -1)
+    endif
+    if self.type is# 'complete'
+        return self
     endif
     return   self.if('len(@$@messages)>'.msglenstr)
                     \.call('remove(@$@messages, '.msglenstr.', -1)')
@@ -623,15 +632,15 @@ function s:compiler.addlencheck(minimum, maximum)
     let maximum=self.getsub(s:F.incrementsub(self.subs[-1], a:maximum))
     if a:maximum==a:minimum
         call self.addif(largsstr.' isnot '.maximum)
-                    \.addthrow('invlen', 0, minimum, largsstr)
+        call        self.addthrow('invlen', 0, minimum, largsstr)
     else
         if a:minimum>0
             call self.addif(largsstr.'<'.minimum)
-                        \.addthrow('tooshort', 0, minimum, largsstr)
+            call        self.addthrow('tooshort', 0, minimum, largsstr)
         endif
         if a:maximum!=-1
             call self.addif(largsstr.'>'.maximum)
-                        \.addthrow('toolong', 0,  maximum, largsstr)
+            call        self.addthrow('toolong', 0,  maximum, largsstr)
         endif
     endif
     return self
@@ -687,18 +696,21 @@ function s:compiler.optimizecompf(vstr)
         let condition=join(conditions, ' || ')
         let chargstr=a:vstr.'['.argidxstr.']'
         if condition=~#'\v^%([^@]|\V'.chargstr.'\v)+$'
-            call self.up().up()
+            call self.up()
+            call self.up()
             call remove(self.l, -2, -1)
             let condition=substitute(condition, '\V'.chargstr, 'v:val', 'g')
             call self.call('filter('.a:vstr.', '.string('!('.condition.')').')')
         else
             call remove(self.l, -1)
             call self.if(condition)
-                        \.call(removestr)
-                    \.up().addif()
-                        \.increment(argidxstr)
-                    \.up()
-                \.up().up()
+            call         self.call(removestr)
+            call     self.up()
+            call self.addif()
+            call         self.increment(argidxstr)
+            call     self.up()
+            call self.up()
+            call self.up()
         endif
     endif
     return self
@@ -860,6 +872,9 @@ function s:compiler.compilearg(argcon, idx, type)
             continue
         endif
         if a:type is# 'complete'
+            if comptype is# 'msg'
+                continue
+            endif
             if addedcompletion
                 if !addedcycle
                     let addedcycle=1
@@ -867,10 +882,10 @@ function s:compiler.compilearg(argcon, idx, type)
                         call self.joinmatches(jstart, vstr)
                     endif
                     call self.let(argidxstr, 0)
-                                \.while(argidxstr.'<len('.vstr.')')
-                                    \.try()
-                                        \.pushms('throwignore')
-                                        \.witharg([vstr, [[argidxstr]]])
+                    call        self.while(argidxstr.'<len('.vstr.')')
+                    call            self.try()
+                    call                self.pushms('throwignore')
+                    call                self.witharg([vstr, [[argidxstr]]])
                 endif
             elseif compargs[0][1][0] is# 'intfunc' &&
                         \has_key(s:_r.FWC_intfuncs[compargs[0][1][1]],
@@ -902,13 +917,16 @@ function s:compiler.compilearg(argcon, idx, type)
     endif
     if a:type is# 'complete'
         if addedcycle
-            call self.without().popms()
-                        \.increment(argidxstr)
-                    \.up().catch(s:cfreg)
-                        \.call('remove('.vstr.', '.argidxstr.')')
-                    \.up()
-                \.up().up()
-                \.optimizecompf(vstr)
+            call self.without()
+            call self.popms()
+            call         self.increment(argidxstr)
+            call     self.up()
+            call self.catch(s:cfreg)
+            call         self.call('remove('.vstr.', '.argidxstr.')')
+            call self.up()
+            call self.up()
+            call self.up()
+            call self.optimizecompf(vstr)
         endif
         call self.popvstr()
     endif
@@ -1006,7 +1024,7 @@ function s:compiler.compadescr(adescr, idx, type, ...)
             let largsstr=self.getlargsstr()
             let proclen=self.getlastsub()
             call self.addif(proclen.' isnot '.largsstr)
-                        \.addthrow('lennmatch', 0, proclen, largsstr)
+            call        self.addthrow('lennmatch', 0, proclen, largsstr)
         endif
         "▶2 addrestmsgs
         if addedsavemsgs
@@ -1072,19 +1090,23 @@ function s:F.compstr(vars, string, type, doreturn)
         call add(t.subs, 0)
     endif
     if t.type is# 'check' || t.type is# 'pipe'
-        call        t.let('@$@messages',  '[]')
-                    \.let('@$@pmessages', '[]')
-                    \.try()
+        call t.let('@$@messages',  '[]')
+        call t.let('@$@pmessages', '[]')
+        call t.try()
         call t.compadescr(tree, '', t.type)
-        call t
-                \.up().finally()
-                    \.for('@$@targs', '@$@messages')
-                        \.call('call(@%@.F.warn, @$@targs, {})').up()
-                    \.for('@$@targs', '@$@pmessages')
-                        \.call('call(@%@.p._f.warn, @$@targs, {})').up()
-                \.up().up()
+        call t.up()
+        call t.finally()
+        call     t.for('@$@targs', '@$@messages')
+        call         t.call('call(@%@.F.warn, @$@targs, {})')
+        call     t.up()
+        call     t.for('@$@targs', '@$@pmessages')
+        call         t.call('call(@%@.p._f.warn, @$@targs, {})')
+        call     t.up()
+        call t.up()
+        call t.up()
     else
-        call t.let('@-@', '[]').compadescr(tree, '', t.type)
+        call t.let('@-@', '[]')
+        call t.compadescr(tree, '', t.type)
     endif
     if a:doreturn is# 1
         if t.type is# 'check'

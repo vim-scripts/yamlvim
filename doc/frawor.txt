@@ -398,7 +398,7 @@ fwc.del : function ({FWCid})                                *frawor-f-fwc.del*
 ------------------------------------------------------------------------------
 3.8. plugin/frawor/mappings features                *frawor-f-frawor/mappings*
 
-                                                        *frawor-f-addmapgroup*
+                                                       *frawor-f-mapgroup.add*
 mapgroup.add : function ({mgid}, {mappings}[, {mgopts}])
              + unload
         Add mapping group with id {mgid}. {mappings} is a dictionary which 
@@ -816,8 +816,15 @@ os.path.abspath :: path + FS -> path                *frawor-r-os.path.abspath*
         Returns an absolute path.
 os.path.realpath :: path + FS -> path              *frawor-r-os.path.realpath*
         Returns an absolute path with all symbolic links resolved.
+os.path.relpath  :: path[, path] -> path              *frawor-os.path.relpath*
+        Transforms its first argument so that it will be a path, relative to 
+        the path given in the second argument (default: current directory). 
+        Returns transformed version of path or 0 if it cannot be constructed 
+        (for example, if paths are on different drives on windows).
 os.path.normpath :: path -> path                   *frawor-r-os.path.normpath*
-        Normalize path by removing duplicate path separators.
+        Normalize path by removing duplicate path separators and simplifying 
+        it (see |simplify()|). It also adds leading `./' to the relative 
+        paths.
 os.path.basename :: path -> component              *frawor-r-os.path.basename*
         Returns the final component of a path.
 os.path.dirname :: path -> path                     *frawor-r-os.path.dirname*
@@ -1000,7 +1007,7 @@ All frawor options are defined into various modules.
 These options are defined in plugin/frawor/mappings. Unlike other frawor 
 options the following options should be prefixed with `frawormap' string, not 
 with `frawor'. Exact values of {mgid} and {mapname} are determined by plugin 
-that defined a mapping group (see |frawor-f-addmapgroup|), frawor itself does 
+that defined a mapping group (see |frawor-f-mapgroup.add|), frawor itself does 
 not define any mappings.
 
                                          *b:frawormap_mgid* *g:frawormap_mgid*
@@ -1172,6 +1179,7 @@ altervars :: [({varname}[, {value}])]                     *frawor-t-altervars*
                    tabpage or window-local variables).
         buffer     Saves and restores current buffer number.
         window     Saves and restores current tab page and window.
+        folds      Saves and restores folds state.
         winview    Saves and restores window view (using |winsaveview()| and 
                    |winrestview()|).
         matches    Saves and restores matches (using |getmatches()| and 
@@ -1374,13 +1382,22 @@ mapping :: {}                                               *frawor-t-mapping*
                                   |frawor-f-addresource|.
 ==============================================================================
 8. Changelog                                                *frawor-changelog*
+Only API changes are listed here. See commit log in order to get other 
+changes.
 
 @/mappings:
     0.1: Added possibility to specify dictionaries in `strfunc' and `func' 
          keys.
 @/table:
-    0.1: Posted strdisplaywidth function
+    0.1: Posted |frawor-r-strdisplaywidth|
 @/fwc:
-    0.1: (intfuncs-0.1) Added `idof' checker
+    0.1: (intfuncs-0.1) Added |FWC-c-idof|
+    0.2: (intfuncs-0.2) Made |FWC-f-path| filter expand argument
+    0.3: (intfuncs-0.3) Added -onlystrings support for |FWC-c-range|
+@/os:
+    0.1: Added |frawor-r-os.path.relpath|
+         Made |frawor-r-os.path.normpath| also simplify its argument
+@/decorators/altervars:
+    0.1: Added folds |frawor-av-special|
 
 vim: ft=help:tw=78

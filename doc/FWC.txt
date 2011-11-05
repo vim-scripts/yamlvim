@@ -561,12 +561,16 @@ idof {idspec}                                                     *FWC-c-idof*
                           | "sign"
     Completer: completes list of possible variants.
 
-range {number} {number} {one}   (|FWC-{one}|)                    *FWC-c-range*
+range {number} {number} {one}   (|FWC-{one}|)      *FWC-f-range* *FWC-c-range*
     Checker: check whether current argument is a number or float and is in 
              given range. Floating-point values are not allowed unless one of 
              {float} arguments is floating-point (infinity is not 
              a floating-point value, it is a special case) or user explicitely 
              allowed floating-point values by setting {one} argument to 1.
+    Filter: same unless |FWC-o-onlystrings| option is given. In this case it 
+            will transform its argument to either a floating-point value (only 
+            if it contains a dot) or to a number (see |str2float()| and 
+            |str2nr()|).
                        (|FWC-{float}|, |FWC-{var}|)
                          {number} :: {float}
                                    | "$" {var}
@@ -577,9 +581,13 @@ match {reg}   (|FWC-{reg}|)                                      *FWC-c-match*
              Matching is done case-sensitively by default.
     Completer: ignored.
 
-path {pathspec}                                                   *FWC-c-path*
+path {pathspec}                                      *FWC-c-path* *FWC-f-path*
     Checker: checks whether current argument is a path matching given 
              specification.
+    Filter: before checking expands path without globbing (uses |expand()| 
+            with \, [, ], ? and * escaped). This means that you can use 
+            ~ directory shortcut, |:_%|, |:_#|, enviroment variables, 
+            |`-expansion| and |`=|.
                     {pathspec} :: [df]? "r"? [wWp]? "x"?
                                 & ! ( "d" | ^ ) "r"
                                 & ! "d" [wWp]? "x"

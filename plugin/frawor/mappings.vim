@@ -65,6 +65,7 @@ if v:lang=~?'ru'
                 \    'middef': 'привязка с данным именем уже определена',
                 \ 'strfncall': 'неизвестная функция в значении ключа «strfunc»',
                 \    'fncall': 'неизвестная функция в значении ключа «func»',
+                \     'ncall': 'неизвестная функция в значении ключа «func»',
                 \    'mapcol': 'левая часть («%s») данной привязки совпадает '.
                 \              'с левой частью привязки %s группы %s, '.
                 \              'определённой в дополнении %s',
@@ -143,6 +144,7 @@ else
                 \    'middef': 'mapping with such name was already defined',
                 \ 'strfncall': '`strfunc'' key contains unknown function',
                 \    'fncall': '`func'' key contains unknown function',
+                \     'ncall': '`func'' key contains unknown function',
                 \    'mapcol': '{lhs} (`%s'') of the mapping is just the same '.
                 \              'as {lhs} of mapping %s from group %s '.
                 \              'defined by plugin %s',
@@ -190,13 +192,33 @@ else
     " 2. Cannot differentiate between <CR> and <LT>CR>
     " 3. Cannot restore <silent> flag
     function s:F.savemap(lhs, mode, abbr)
-        let rhs=maparg(a:lhs, a:mode, a:abbr)
+        if a:mode is 0
+            let mode=' '
+        else
+            let mode=a:mode
+        endif
+        let type=((a:abbr)?('abbr'):('map'))
+        let modes=s:F.modrewrite(mode, type)
+        let rhs=maparg(a:lhs, mode, a:abbr)
+        if len(modes)>1
+            let om=0
+            for m in modes
+                if maparg(a:lhs, m, a:abbr) is# rhs
+                    if om is 0
+                        let om=m
+                    endif
+                else
+                    let mode=om
+                    break
+                endif
+            endfor
+        endif
         if empty(rhs)
             let rhs='<Nop>'
         endif
-        let cmd=(a:abbr ? 'abbr' : 'map')
+        let cmd=type
         redir => mapoutput
-        silent! execute a:mode.cmd subtitute(a:lhs, ' ', '<Space>', 'g')
+        silent! execute mode.cmd substitute(a:lhs, ' ', '<Space>', 'g')
         redir END
         let maplines=split(mapoutput, "\n")
         let noremap=0
@@ -220,9 +242,9 @@ else
                     \'noremap': noremap,
                     \   'expr': 0,
                     \ 'buffer': buffer,
-                    \   'mode': a:mode,
+                    \   'mode': mode,
                     \    'sid': 0,
-                    \   'type': ((a:abbr)?('abbr'):('map')),}
+                    \   'type': type,}
     endfunction
 endif
 "▶1 hsescape      :: String, sid[, a:1::Bool] → String
@@ -240,13 +262,13 @@ endfunction
 "▶1 modrewrite    :: mode, type → [mode]
 function s:F.modrewrite(mode, type)
     if a:type is# 'abbr'
-        return split(substitute(a:mode, ' ', 'ci', ''), '.\@=')
+        return split(substitute(a:mode, ' ', 'ci', ''), '\v.@=')
     else
         return split(substitute(substitute(substitute(a:mode,
                     \' ', 'nxso', ''),
                     \'!', 'ic',   ''),
                     \'v', 'xs',   ''),
-                    \'.\@=')
+                    \'\v.@=')
     endif
 endfunction
 "▶1 map           :: mapdescr → + :map
@@ -277,12 +299,18 @@ endfunction
 function s:F.unmap(mapdescr)
     let modes=s:F.modrewrite(a:mapdescr.mode, a:mapdescr.type)
     let lhs=s:F.hsescape(a:mapdescr.lhs, a:mapdescr.sid, a:mapdescr.type)
+    let r=1
     for mode in modes
-        execute mode.'un'.(a:mapdescr.type)
-                    \ '<special>'
-                    \ ((a:mapdescr.buffer)?('<buffer>'):(''))
-                    \ lhs
+        try
+            execute mode.'un'.(a:mapdescr.type)
+                        \ '<special>'
+                        \ ((a:mapdescr.buffer)?('<buffer>'):(''))
+                        \ lhs
+        catch /\v^Vim\(\l?un\w+\)\:E(24|31|329):/
+            let r=0
+        endtry
     endfor
+    return r
 endfunction
 "▶1 lhsfilter     :: Either lhs [lhs] → [lhs]
 function s:F.lhsfilter(llhs)
